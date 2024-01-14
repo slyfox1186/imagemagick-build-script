@@ -12,5 +12,5 @@ bash build-magick.sh
 
 #### Quick Install
 ```bash
-bash <(curl -sSL https://build-magick.optimizethis.net)
+bash <(curl -sSL https://imagick.optimizethis.net)
 ```
