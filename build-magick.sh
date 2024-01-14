@@ -382,31 +382,42 @@ installed() { return $(dpkg-query -W -f '${Status}\n' "$1" 2>&1 | awk '/ok insta
 #
 
 pkgs_fn() {
-    local missing_pkg missing_pkgs pkg pkgs
+    local missing_pkg missing_packages pkg pkgs
 
-    pkgs=("$1" alien asciidoc autoconf autoconf-archive automake autopoint binutils bison
-          build-essential cmake curl dbus-x11 flex fontforge gettext gimp-data git gperf
-          imagemagick jq libamd2 libbabl-0.1-0 libc6 libc6-dev libcamd2 libccolamd2 libcholmod3
-          libcolamd2 libfont-ttf-perl libfreetype-dev libgc-dev libgegl-0.4-0 libgegl-common
-          libgimp2.0 libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgraphviz-dev libgs-dev libheif-dev
-          libhwy-dev libltdl-dev libmetis5 libnotify-bin libnuma-dev libomp-dev libpango1.0-dev
-          libpaper-dev libpng-dev libpstoedit-dev libraw-dev librsvg2-dev librust-bzip2-dev libsdl2-dev
-          libstdc++-12-dev libsuitesparseconfig5 libtcmalloc-minimal4 libticonv-dev libtool libtool-bin
-          libumfpack5 libxml2-dev libzip-dev m4 meson nasm ninja-build opencl-c-headers opencl-headers
-          php php-cli pstoedit software-properties-common xmlto yasm zlib1g-dev)
+    pkgs=(
+        "$1" alien asciidoc autoconf autoconf-archive automake autopoint binutils bison
+        build-essential cmake curl dbus-x11 flex fontforge gettext gimp-data git gperf
+        imagemagick jq libamd2 libbabl-0.1-0 libc6 libc6-dev libcamd2 libccolamd2
+        libgegl-common libcholmod3 libcolamd2 libfont-ttf-perl libfreetype-dev libgc-dev
+        libgegl-0.4-0 libgimp2.0 libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgraphviz-dev
+        libgs-dev libheif-dev libhwy-dev libltdl-dev libmetis5 libnotify-bin libnuma-dev
+        libomp-dev libpango1.0-dev libpaper-dev libpng-dev libpstoedit-dev libraw-dev
+        librsvg2-dev librust-bzip2-dev libsdl2-dev libstdc++-12-dev libsuitesparseconfig5
+        libtcmalloc-minimal4 libticonv-dev libtool libtool-bin libumfpack5 libxml2-dev
+        libzip-dev m4 meson nasm ninja-build opencl-c-headers opencl-headers php php-cli
+        pstoedit software-properties-common xmlto yasm zlib1g-dev
+)
 
+    # Initialize an empty array for missing packages
+    missing_packages=()
+
+    # Loop through the array
     for pkg in ${pkgs[@]}
     do
-        if ! installed "$pkg"; then
-            missing_pkgs+=" $pkg"
+        # Check if the package is installed using dpkg-query
+        if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed"; then
+            # If not installed, add it to the missing packages array
+            missing_packages+=("$pkg")
         fi
     done
 
-    if [ -n "$missing_pkgs-" ]; then
-        sudo apt -y install $missing_pkgs
-        echo 'The required APT packages were successfully installed.'
+    # Check if there are any missing packages
+    if [ "${#missing_packages[@]}" -gt 0 ]; then
+        # Install missing packages
+        printf "\n%s\n\n" "Installing missing packages: ${missing_packages[*]}"
+        sudo apt -y install "${missing_packages[@]}"
     else
-        echo 'The required APT packages are already installed.'
+        printf "%s\n\n" "All packages are already installed."
     fi
 }
 
