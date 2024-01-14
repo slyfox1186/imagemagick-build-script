@@ -6,7 +6,7 @@
 ##  Script Version: 4.3
 ##  Updated: 01.14.24
 ##
-##  GitHub: https://github.com/slyfox1186/script-repo/blob/main/shell/installers/imagemagick/build-magick
+##  GitHub: https://github.com/slyfox1186/imagemagick-build-script
 ##
 ##  Purpose: Build ImageMagick 7 from the source code obtained from the official GitHub repository
 ##
@@ -51,7 +51,7 @@ packages="$cwd"/packages
 workspace="$cwd"/workspace
 install_dir=/usr/local
 user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-web_repo=https://github.com/slyfox1186/script-repo
+web_repo=https://github.com/slyfox1186/imagemagick-build-script
 debug=OFF # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
 
 #
