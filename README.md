@@ -1,4 +1,4 @@
-# imagemagick-build-script-
+# imagemagick-build-script
 A smart build script for Imagemagick and its additional modules. Automatically locates the latest code available each time the script is run.
 
 ### To install ImageMagick use one of the below methods
