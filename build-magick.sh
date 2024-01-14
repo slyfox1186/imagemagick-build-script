@@ -93,11 +93,14 @@ fi
 # SET THE PATH
 #
 
-if sudo find /usr/local -maxdepth 1 -name 'cuda' 2>/dev/null | head -n1; then
-    cuda_dir="$(sudo find /usr/local -maxdepth 1 -name 'cuda' | head -n1)"
+cuda_dir1="$(sudo find /usr/local -maxdepth 1 -name 'cuda' 2>/dev/null | head -n1)"
+cuda_dir2="$(sudo find /opt -maxdepth 1 -name 'cuda' 2>/dev/null | head -n1)"
+
+if [ -n "$cuda_dir1" ]; then
+    cuda_dir="$cuda_dir1"
     cuda_dir+='/bin'
-elif sudo find /opt -maxdepth 1 -name 'cuda' 2>/dev/null | head -n1; then
-    cuda_dir="$(sudo find /opt -maxdepth 1 -name 'cuda' | head -n1)"
+elif [ -n "$cuda_dir2" ]; then
+    cuda_dir="$cuda_dir2"
     cuda_dir+='/bin'
 fi
 
