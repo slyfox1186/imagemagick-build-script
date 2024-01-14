@@ -135,8 +135,7 @@ export PKG_CONFIG_PATH
 # CREATE FUNCTIONS
 #
 
-exit_fn()
-{
+exit_fn() {
     printf "%s\n\n%s\n%s\n\n" \
         'The script has completed' \
         'Make sure to star this repository to show your support!' \
@@ -144,8 +143,7 @@ exit_fn()
     exit 0
 }
 
-fail_fn()
-{
+fail_fn() {
     printf "\n\n%s\n\n%s\n\n%s\n\n" \
         "$1" \
         'To report a bug please visit: ' \
@@ -153,8 +151,7 @@ fail_fn()
     exit 1
 }
 
-cleanup_fn()
-{
+cleanup_fn() {
     local choice
 
     printf "\n%s\n\n%s\n%s\n\n" \
@@ -174,8 +171,7 @@ cleanup_fn()
     esac
 }
 
-execute()
-{
+execute() {
     echo "$ ${*}"
 
     if [ "${debug}" = 'ON' ]; then
@@ -191,8 +187,7 @@ execute()
     fi
 }
 
-build()
-{
+build() {
     printf "\n%s\n%s\n" \
         "Building $1 - version $2" \
         '=========================================='
@@ -208,16 +203,14 @@ build()
 
 build_done() { echo "$2" > "$packages/$1.done"; }
 
-get_version_fn()
-{
+get_version_fn() {
     scipt_name="$(basename "${0}")"
     printf "\n%s\n\n%s\n\n" \
         "Script name: $scipt_name" \
         "Script version: $script_ver"
 }
 
-download()
-{
+download() {
     dl_path="$packages"
     dl_url="$1"
     dl_file="${2:-"${1##*/}"}"
@@ -269,8 +262,7 @@ download()
     cd "$target_dir" || fail_fn "Unable to change the working directory to \"$target_dir\" Line: ${LINENO}"
 }
 
-download_git()
-{
+download_git() {
     local dl_path dl_url dl_file target_dir
 
     dl_path="$packages"
@@ -305,8 +297,7 @@ download_git()
     cd "$target_dir" || fail_fn "Unable to change the working directory to: $target_dir. Line: ${LINENO}"
 }
 
-show_ver_fn()
-{
+show_ver_fn() {
     printf "\n%s\n\n" 'ImageMagick'\''s new version is:'
     if ! magick -version 2>/dev/null; then
         fail_fn "Failure to execute the command: magick -version. Line: ${LINENO}"
@@ -347,16 +338,14 @@ git_1_fn() {
     fi
 }
 
-git_2_fn()
-{
+git_2_fn() {
     repo="$1"
     if curl_cmd="$(curl -A "$user_agent" -m 10 -sSL "https://gitlab.freedesktop.org/api/v4/projects/${repo}/repository/tags")"; then
         g_ver="$(echo "$curl_cmd" | jq -r '.[0].name')"
     fi
 }
 
-git_ver_fn()
-{
+git_ver_fn() {
     local t_flag u_flag v_flag v_tag v_url
 
     v_url="$1"
@@ -387,8 +376,7 @@ installed() { return $(dpkg-query -W -f '${Status}\n' "$1" 2>&1 | awk '/ok insta
 # PRINT THE OPTIONS AVAILABLE WHEN MANUALLY RUNNING THE SCRIPT
 #
 
-pkgs_fn()
-{
+pkgs_fn() {
     local missing_pkg missing_pkgs pkg pkgs
 
     pkgs=("$1" alien asciidoc autoconf autoconf-archive automake autopoint binutils bison
@@ -417,8 +405,7 @@ pkgs_fn()
     fi
 }
 
-install_autotrace_fn()
-{
+install_autotrace_fn() {
     curl -A "$user_agent" -Lso "$packages"/deb-files/autotrace.deb 'https://github.com/autotrace/autotrace/releases/download/travis-20200219.65/autotrace_0.40.0-20200219_all.deb'
 
     cd "$packages"/deb-files || exit 1
@@ -431,8 +418,7 @@ install_autotrace_fn()
     fi
 }
 
-install_libjxl_fn()
-{
+install_libjxl_fn() {
     cd "$packages"/deb-files || exit 1
 
     if ! sudo dpkg -i ./libjxl_0.8.2_amd64.deb; then
@@ -446,8 +432,7 @@ install_libjxl_fn()
     sudo dpkg -i ./*.deb
 }
 
-dl_libjxl_fn()
-{
+dl_libjxl_fn() {
     local url_base url_suffix
 
     url_base='https://github.com/libjxl/libjxl/releases/download/v0.8.2/jxl-debs-amd64'
@@ -499,8 +484,7 @@ dl_libjxl_fn()
 # ANNOUNCE THE BUILD HAS BEGUN
 #
 
-box_out_banner_script_header()
-{
+box_out_banner_script_header() {
     input_char=$(echo "$@" | wc -c)
     line=$(for i in $(seq 0 $input_char); do printf '-'; done)
     tput bold
@@ -523,8 +507,7 @@ printf "\n%s\n%s\n" \
     'Installing required APT packages' \
     '=========================================='
 
-debian_ver_fn()
-{
+debian_ver_fn() {
     local pkgs_bookworm pkgs_bullseye pkgs_debian
 
     pkgs_debian='libcpu-features-dev libfontconfig-dev libgc1 libdmalloc-dev libdmalloc5 libjemalloc-dev'
@@ -540,8 +523,7 @@ debian_ver_fn()
     esac
 }
 
-ubuntu_ver_fn()
-{
+ubuntu_ver_fn() {
     local pkgs_jammy pkgs_lunar
 
     pkgs_jammy='libcpu-features-dev libfontconfig-dev libgc1 libhwy-dev libmimalloc2.0 libmimalloc-dev'
@@ -986,8 +968,7 @@ fi
 #
 
 echo
-box_out_banner_magick()
-{
+box_out_banner_magick() {
     input_char=$(echo "$@" | wc -c)
     line=$(for i in $(seq 0 $input_char); do printf '-'; done)
     tput bold
