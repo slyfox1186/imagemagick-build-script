@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1091,SC2034,SC2046,SC2066,SC2068,SC2086,SC2119,SC2162,SC2181
 
-#############################################################################################################
+############################################################################################################
 ##
 ##  Script Version: 4.3
 ##  Updated: 01.14.24
@@ -331,7 +331,7 @@ git_1_fn() {
         line=$(echo "$curl_cmd" | grep -o 'href="[^"]*\.tar\.gz"' | sed -n "${cnt}p")
 
         # Check if the line matches the pattern (version without 'RC'/'rc')
-        if echo "$line" | grep -oP '(\d+\.\d+\.\d+(-\d+)?)(?=.tar.gz)'; then
+        if echo "$line" | grep -qoP '(\d+\.\d+\.\d+(-\d+)?)(?=.tar.gz)'; then
             # Extract and print the version number
             g_ver="$(echo "$line" | grep -oP '(\d+\.\d+\.\d+(-\d+)?)(?=.tar.gz)')"
             break
@@ -411,8 +411,7 @@ pkgs_fn()
 
     if [ -n "$missing_pkgs-" ]; then
         sudo apt -y install $missing_pkgs
-        printf "\n%s\n\n" \
-            'The required APT packages were successfully installed.'
+        echo 'The required APT packages were successfully installed.'
     else
         echo 'The required APT packages are already installed.'
     fi
