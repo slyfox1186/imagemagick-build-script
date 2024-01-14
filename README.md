@@ -1,7 +1,7 @@
 # imagemagick-build-script-
 A smart build script for Imagemagick and its additional modules. Automatically locates the latest code available each time the script is run.
 
-## To build use one of the below methods
+### To install ImageMagick use one of the below methods
 
 #### Git Clone
 ```bash
