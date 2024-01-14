@@ -89,22 +89,36 @@ else
     cpu_threads="$(nproc --all)"
 fi
 
+#
+# SET THE PATH
+#
+
+if sudo find /usr/local -maxdepth 1 -name 'cuda' 2>/dev/null | head -n1; then
+    cuda_dir="$(sudo find /usr/local -maxdepth 1 -name 'cuda' | head -n1)"
+    cuda_dir+='/bin'
+elif sudo find /opt -maxdepth 1 -name 'cuda' 2>/dev/null | head -n1; then
+    cuda_dir="$(sudo find /opt -maxdepth 1 -name 'cuda' | head -n1)"
+    cuda_dir+='/bin'
+fi
+
+if [ -d '/usr/lib/ccache/bin' ]; then
+    ccache_dir='/usr/lib/ccache/bin'
+else
+    ccache_dir='/usr/lib/ccache'
+fi
+
 PATH="\
-/usr/lib/ccache:\
-${HOME}/perl5/bin:\
-${HOME}/.cargo/bin:\
-${HOME}/.local/bin:\
+$ccache_dir:\
+$cuda_dir:\
+$HOME/perl5/bin:\
+$HOME/.cargo/bin:\
+$HOME/.local/bin:\
 /usr/local/sbin:\
-/usr/local/cuda/bin:\
-/usr/local/x86_64-linux-gnu/bin:\
 /usr/local/bin:\
 /usr/sbin:\
 /usr/bin:\
 /sbin:\
-/bin:\
-/usr/local/games:\
-/usr/games:\
-/snap/bin\
+/bin\
 "
 export PATH
 
