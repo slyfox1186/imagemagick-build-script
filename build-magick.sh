@@ -390,12 +390,12 @@ pkgs_fn() {
         imagemagick jq libamd2 libbabl-0.1-0 libc6 libc6-dev libcamd2 libccolamd2
         libgegl-common libcholmod3 libcolamd2 libfont-ttf-perl libfreetype-dev libgc-dev
         libgegl-0.4-0 libgimp2.0 libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgraphviz-dev
-        libgs-dev libheif-dev libhwy-dev libltdl-dev libmetis5 libnotify-bin libnuma-dev
-        libomp-dev libpango1.0-dev libpaper-dev libpng-dev libpstoedit-dev libraw-dev
-        librsvg2-dev librust-bzip2-dev libsdl2-dev libstdc++-12-dev libsuitesparseconfig5
-        libtcmalloc-minimal4 libticonv-dev libtool libtool-bin libumfpack5 libxml2-dev
-        libzip-dev m4 meson nasm ninja-build opencl-c-headers opencl-headers php php-cli
-        pstoedit software-properties-common xmlto yasm zlib1g-dev
+        libgs-dev libheif-dev libltdl-dev libmetis5 libnotify-bin libnuma-dev libomp-dev
+        libpango1.0-dev libpaper-dev libpng-dev libpstoedit-dev libraw-dev librsvg2-dev
+        librust-bzip2-dev libsuitesparseconfig5 libtcmalloc-minimal4 libticonv-dev
+        libtool libtool-bin libumfpack5 libxml2-dev libzip-dev m4 meson nasm ninja-build
+        opencl-c-headers opencl-headers php php-cli pstoedit software-properties-common
+        xmlto yasm zlib1g-dev
 )
 
     # Initialize an empty array for missing packages
@@ -542,13 +542,15 @@ debian_ver_fn() {
 ubuntu_ver_fn() {
     local pkgs_jammy pkgs_lunar
 
-    pkgs_jammy='libcpu-features-dev libfontconfig-dev libgc1 libhwy-dev libmimalloc2.0 libmimalloc-dev'
+    pkgs_focal='libfontconfig1-dev libstdc++-10-dev'
+    pkgs_jammy='libhwy-dev libcpu-features-dev libfontconfig-dev libstdc++-12-dev libsdl2-dev'
+    pkgs_jammy+=' libgc1 libhwy-dev libmimalloc2.0 libmimalloc-dev'
     pkgs_lunar="$pkgs_jammy librust-jpeg-decoder-dev"
 
     case "$VER" in
         23.04)     pkgs_fn "$pkgs_lunar";;
         22.04)     pkgs_fn "$pkgs_jammy libhwy0";;
-        20.04)     pkgs_fn 'libfontconfig1-dev';;
+        20.04)     pkgs_fn "$pkgs_focal";;
         18.04)     pkgs_fn;;
         *)         fail_fn "Could not detect the Ubuntu version. Line: ${LINENO}";;
     esac
