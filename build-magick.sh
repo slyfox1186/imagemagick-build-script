@@ -93,17 +93,6 @@ fi
 # SET THE PATH
 #
 
-cuda_dir1="$(sudo find /usr/local -maxdepth 1 -name 'cuda' 2>/dev/null | head -n1)"
-cuda_dir2="$(sudo find /opt -maxdepth 1 -name 'cuda' 2>/dev/null | head -n1)"
-
-if [ -n "$cuda_dir1" ]; then
-    cuda_dir="$cuda_dir1"
-    cuda_dir+='/bin'
-elif [ -n "$cuda_dir2" ]; then
-    cuda_dir="$cuda_dir2"
-    cuda_dir+='/bin'
-fi
-
 if [ -d '/usr/lib/ccache/bin' ]; then
     ccache_dir='/usr/lib/ccache/bin'
 else
@@ -112,7 +101,6 @@ fi
 
 PATH="\
 $ccache_dir:\
-$cuda_dir:\
 $HOME/perl5/bin:\
 $HOME/.cargo/bin:\
 $HOME/.local/bin:\
