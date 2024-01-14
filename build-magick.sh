@@ -382,7 +382,7 @@ installed() { return $(dpkg-query -W -f '${Status}\n' "$1" 2>&1 | awk '/ok insta
 #
 
 pkgs_fn() {
-    local missing_pkg missing_packages pkg pkgs
+    local missing_pkg missing_packages pkg pkgs available_packages unavailable_packages
 
     pkgs=(
         "$1" alien asciidoc autoconf autoconf-archive automake autopoint binutils bison
@@ -392,32 +392,46 @@ pkgs_fn() {
         libgegl-0.4-0 libgimp2.0 libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgraphviz-dev
         libgs-dev libheif-dev libltdl-dev libmetis5 libnotify-bin libnuma-dev libomp-dev
         libpango1.0-dev libpaper-dev libpng-dev libpstoedit-dev libraw-dev librsvg2-dev
-        librust-bzip2-dev libsuitesparseconfig5 libtcmalloc-minimal4 libticonv-dev
+        librust-bzip2-dev libsdl2-dev libsuitesparseconfig5 libtcmalloc-minimal4 libticonv-dev
         libtool libtool-bin libumfpack5 libxml2-dev libzip-dev m4 meson nasm ninja-build
         opencl-c-headers opencl-headers php php-cli pstoedit software-properties-common
         xmlto yasm zlib1g-dev
 )
 
-    # Initialize an empty array for missing packages
+    # Initialize arrays for missing, available, and unavailable packages
     missing_packages=()
+    available_packages=()
+    unavailable_packages=()
 
-    # Loop through the array
-    for pkg in ${pkgs[@]}
+    # Loop through the array to find missing packages
+    for pkg in "${pkgs[@]}"
     do
-        # Check if the package is installed using dpkg-query
         if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed"; then
-            # If not installed, add it to the missing packages array
             missing_packages+=("$pkg")
         fi
     done
 
-    # Check if there are any missing packages
-    if [ "${#missing_packages[@]}" -gt 0 ]; then
-        # Install missing packages
-        printf "\n%s\n\n" "Installing missing packages: ${missing_packages[*]}"
-        sudo apt -y install "${missing_packages[@]}"
+    # Check availability of missing packages and categorize them
+    for pkg in "${missing_packages[@]}"
+    do
+        if apt-cache show "$pkg" > /dev/null 2>&1; then
+            available_packages+=("$pkg")
+        else
+            unavailable_packages+=("$pkg")
+        fi
+    done
+
+    # Print unavailable packages
+    if [ "${#unavailable_packages[@]}" -gt 0 ]; then
+        printf "\\nUnavailable packages: %s\\n\\n" "${unavailable_packages[*]}"
+    fi
+
+    # Install available missing packages
+    if [ "${#available_packages[@]}" -gt 0 ]; then
+        printf "\\nInstalling available missing packages: %s\\n\\n" "${available_packages[*]}"
+        sudo apt -y install "${available_packages[@]}"
     else
-        printf "%s\n\n" "All packages are already installed."
+        printf "%s\\n\\n" "No missing packages to install or all missing packages are unavailable."
     fi
 }
 
