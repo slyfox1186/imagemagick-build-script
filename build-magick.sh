@@ -8,7 +8,7 @@
 ##
 ##  GitHub: https://github.com/slyfox1186/imagemagick-build-script
 ##
-##  Purpose: Build ImageMagick 7 from the source code obtained from the official GitHub repository
+##  Purpose: Build ImageMagick 7 from the source code obtained from ImageMagick's official GitHub repository
 ##
 ##  Function: ImageMagick is the leading open-source command line image processor. It can blur, sharpen, warp,
 ##            reduce total file size, ect... The possibilities are vast
