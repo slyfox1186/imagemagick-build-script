@@ -382,7 +382,7 @@ installed() { return $(dpkg-query -W -f '${Status}\n' "$1" 2>&1 | awk '/ok insta
 #
 
 pkgs_fn() {
-    local missing_pkg missing_packages pkg pkgs available_packages unavailable_packages
+    local missing_packages pkg pkgs available_packages unavailable_packages
 
     pkgs=(
         "$1" alien asciidoc autoconf autoconf-archive automake autopoint binutils bison
