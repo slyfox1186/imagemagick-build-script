@@ -546,8 +546,8 @@ debian_ver_fn() {
     pkgs_bookworm+="$pkgs_debian libhwy-dev"
 
     case "$VER" in
-        12)     pkgs_fn "$pkgs_bookworm";;
-        11)     pkgs_fn "$pkgs_bullseye";;
+        12)     pkgs_fn $pkgs_bookworm;;
+        11)     pkgs_fn $pkgs_bullseye;;
         10)     pkgs_fn;;
         *)      fail_fn "Could not detect the Debian version. Line: ${LINENO}";;
     esac
@@ -562,9 +562,9 @@ ubuntu_ver_fn() {
     pkgs_lunar="$pkgs_jammy librust-jpeg-decoder-dev"
 
     case "$VER" in
-        23.04)     pkgs_fn "$pkgs_lunar";;
-        22.04)     pkgs_fn "$pkgs_jammy libhwy0";;
-        20.04)     pkgs_fn "$pkgs_focal";;
+        23.04)     pkgs_fn $pkgs_lunar;;
+        22.04)     pkgs_fn $pkgs_jammy libhwy0;;
+        20.04)     pkgs_fn $pkgs_focal;;
         18.04)     pkgs_fn;;
         *)         fail_fn "Could not detect the Ubuntu version. Line: ${LINENO}";;
     esac
