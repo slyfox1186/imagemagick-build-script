@@ -428,7 +428,7 @@ pkgs_fn() {
     # Install available missing packages
     if [ "${#available_packages[@]}" -gt 0 ]; then
         echo "Installing available missing packages: ${available_packages[*]}"
-        sudo apt -y install "${available_packages[@]}"
+        sudo apt install "${available_packages[@]}"
     else
         printf "%s\n\n" "No missing packages to install or all missing packages are unavailable."
     fi
@@ -439,7 +439,7 @@ install_autotrace_fn() {
 
     cd "$packages"/deb-files || exit 1
 
-    echo '$ sudo apt -y install ./autotrace.deb'
+    echo '$ sudo apt install ./autotrace.deb'
     if ! sudo apt -y install ./autotrace.deb; then
         sudo dpkg --configure -a
         sudo apt --fix-broken install
