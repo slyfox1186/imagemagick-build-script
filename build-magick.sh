@@ -3,8 +3,8 @@
 
 ############################################################################################################
 ##
-##  Script Version: 4.3
-##  Updated: 01.14.24
+##  Script Version: 4.4
+##  Updated: 01.16.24
 ##
 ##  GitHub: https://github.com/slyfox1186/imagemagick-build-script
 ##
@@ -44,7 +44,7 @@ fi
 # SET GLOBAL VARIABLES
 #
 
-script_ver=4.3
+script_ver=4.4
 progname="${0}"
 cwd="$PWD"/magick-build-script
 packages="$cwd"/packages
@@ -52,6 +52,7 @@ workspace="$cwd"/workspace
 install_dir=/usr/local
 user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 web_repo=https://github.com/slyfox1186/imagemagick-build-script
+regex_str='(rc|RC|master)+[0-9]*$'
 debug=OFF # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
 
 #
@@ -177,17 +178,17 @@ cleanup_fn() {
 }
 
 execute() {
-    echo "$ ${*}"
+    echo "$ $*"
 
-    if [ "${debug}" = 'ON' ]; then
+    if [ "$debug" = 'ON' ]; then
         if ! output="$("$@")"; then
-            notify-send -t 5000 "Failed to execute: ${*}" 2>/dev/null
-            fail_fn "Failed to execute: ${*}"
+            notify-send -t 5000 "Failed to execute: $*" 2>/dev/null
+            fail_fn "Failed to execute: $*"
         fi
     else
         if ! output="$("$@" 2>&1)"; then
-            notify-send -t 5000 "Failed to execute: ${*}" 2>/dev/null
-            fail_fn "Failed to execute: ${*}"
+            notify-send -t 5000 "Failed to execute: $*" 2>/dev/null
+            fail_fn "Failed to execute: $*"
         fi
     fi
 }
@@ -238,7 +239,7 @@ download() {
             printf "\n%s\n\n" "The script failed to download \"$dl_file\" and will try again in 10 seconds..."
             sleep 10
             if ! curl -A "$user_agent" -m 10 -Lso "$target_file" "$dl_url"; then
-                fail_fn "The script failed to download \"$dl_file\" twice and will now exit. Line: ${LINENO}"
+                fail_fn "The script failed to download \"$dl_file\" twice and will now exit. Line: $LINENO"
             fi
         fi
         echo 'Download Completed'
@@ -253,18 +254,18 @@ download() {
     if [ -n "$3" ]; then
         if ! tar -xf "$target_file" -C "$target_dir" 2>/dev/null >/dev/null; then
             sudo rm "$target_file"
-            fail_fn "The script failed to extract \"$dl_file\" so it was deleted. Please re-run the script. Line: ${LINENO}"
+            fail_fn "The script failed to extract \"$dl_file\" so it was deleted. Please re-run the script. Line: $LINENO"
         fi
     else
         if ! tar -xf "$target_file" -C "$target_dir" --strip-components 1 2>/dev/null >/dev/null; then
             sudo rm "$target_file"
-            fail_fn "The script failed to extract \"$dl_file\" so it was deleted. Please re-run the script. Line: ${LINENO}"
+            fail_fn "The script failed to extract \"$dl_file\" so it was deleted. Please re-run the script. Line: $LINENO"
         fi
     fi
 
     printf "%s\n\n" "File extracted: $dl_file"
 
-    cd "$target_dir" || fail_fn "Unable to change the working directory to \"$target_dir\" Line: ${LINENO}"
+    cd "$target_dir" || fail_fn "Unable to change the working directory to \"$target_dir\" Line: $LINENO"
 }
 
 download_git() {
@@ -289,23 +290,23 @@ download_git() {
 
     echo "Downloading $dl_url as $dl_file"
 
-    if ! git clone ${set_recurse} -q "$dl_url" "$target_dir"; then
+    if ! git clone $set_recurse -q "$dl_url" "$target_dir"; then
         printf "\n%s\n\n" "The script failed to clone the directory \"$target_dir\" and will try again in 10 seconds..."
         sleep 10
-        if ! git clone ${set_recurse} -q "$dl_url" "$target_dir"; then
-            fail_fn "The script failed to clone the directory \"$target_dir\" twice and will now exit the build. Line: ${LINENO}"
+        if ! git clone $set_recurse -q "$dl_url" "$target_dir"; then
+            fail_fn "The script failed to clone the directory \"$target_dir\" twice and will now exit the build. Line: $LINENO"
         fi
     else
         printf "%s\n\n" "Successfully cloned: $target_dir"
     fi
 
-    cd "$target_dir" || fail_fn "Unable to change the working directory to: $target_dir. Line: ${LINENO}"
+    cd "$target_dir" || fail_fn "Unable to change the working directory to: $target_dir. Line: $LINENO"
 }
 
 show_ver_fn() {
     printf "\n%s\n\n" 'ImageMagick'\''s new version is:'
     if ! magick -version 2>/dev/null; then
-        fail_fn "Failure to execute the command: magick -version. Line: ${LINENO}"
+        fail_fn "Failure to execute the command: magick -version. Line: $LINENO"
     else
         sleep 2
     fi
@@ -344,10 +345,56 @@ git_1_fn() {
 }
 
 git_2_fn() {
+    local cnt repo
     repo="$1"
-    if curl_cmd="$(curl -A "$user_agent" -m 10 -sSL "https://gitlab.freedesktop.org/api/v4/projects/${repo}/repository/tags")"; then
-        g_ver="$(echo "$curl_cmd" | jq -r '.[0].name')"
+    cnt=0
+    g_ver=""
+
+    while true
+    do
+        if curl_cmd="$(curl -m 10 -sSL "https://gitlab.freedesktop.org/api/v4/projects/$repo/repository/tags")"; then
+            g_ver="$(echo "$curl_cmd" | jq -r ".[$cnt].name")"
+            g_ver="${g_ver#v}"
+
+            # Check if g_ver contains "RC" and skip it
+            if [[ $g_ver =~ $regex_str ]]; then
+                ((cnt++))
+            else
+                break  # Exit the loop when a non-RC version is found
+            fi
+        else
+            echo "Error: Failed to fetch data from GitLab API."
+            return 1
+        fi
+    done
+}
+
+git_3_fn() {
+    local cnt repo url
+
+    repo="$1"
+    url="$2"
+    cnt=0
+    g_ver=""
+
+    if [[ -z "$repo" ]]; then
+        echo "Error: Repository name is required."
+        return 1
     fi
+
+    if curl_cmd="$(curl -sSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url")"; then
+        g_ver="$(echo "$curl_cmd" | jq -r '.[0].name')"
+        g_ver="${g_ver#v}"
+    fi
+
+    # DENY INSTALLING A RELEASE CANDIDATE
+    while [[ $g_ver =~ $regex_str ]]; do
+        if curl_cmd="$(curl -sSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url")"; then
+            g_ver="$(echo "$curl_cmd" | jq -r ".[$cnt].name")"
+            g_ver="${g_ver#v}"
+        fi
+        ((cnt++))
+    done
 }
 
 git_ver_fn() {
@@ -362,20 +409,19 @@ git_ver_fn() {
                 B)      t_flag=branches;;
                 R)      t_flag=releases;;
                 T)      t_flag=tags;;
-                *)      fail_fn "Could not detect the variable \"v_flag\" in the function \"git_ver_fn\". Line: ${LINENO}"
+                *)      fail_fn "Could not detect the variable \"v_flag\" in the function \"git_ver_fn\". Line: $LINENO"
         esac
     fi
 
     case "$v_tag" in
             1)      u_flag=git_1_fn;;
             2)      u_flag=git_2_fn;;
-            *)      fail_fn "Could not detect the variable \"v_tag\" in the function \"git_ver_fn\". Line: ${LINENO}"
+            3)      u_flag=git_3_fn;;
+            *)      fail_fn "Could not detect the variable \"v_tag\" in the function \"git_ver_fn\". Line: $LINENO"
     esac
 
     "$u_flag" "$v_url" "$t_flag" 2>/dev/null
 }
-
-installed() { return $(dpkg-query -W -f '${Status}\n' "$1" 2>&1 | awk '/ok installed/{print 0;exit}{print 1}'); }
 
 #
 # PRINT THE OPTIONS AVAILABLE WHEN MANUALLY RUNNING THE SCRIPT
@@ -385,16 +431,12 @@ pkgs_fn() {
     local missing_packages pkg pkgs available_packages unavailable_packages
 
     pkgs=(
-        "$1" alien asciidoc autoconf autoconf-archive automake autopoint binutils bison build-essential
-        cmake curl dbus-x11 flex fontforge gettext gimp-data git gperf imagemagick jq libamd2 libbabl-0.1-0
-        libc6 libc6-dev libcamd2 libccolamd2 libcholmod3 libcolamd2 libdmalloc-dev libdmalloc5 libfont-ttf-perl
-        libfreetype-dev libgc-dev libgegl-0.4-0 libgegl-common libgimp2.0 libgimp2.0-dev libgl2ps-dev libglib2.0-dev
-        libgraphviz-dev libgs-dev libheif-dev libjemalloc-dev libjemalloc2 libltdl-dev libmetis5 libmimalloc-dev
-        libmimalloc2.0 libnotify-bin libnuma-dev libomp-dev libpango1.0-dev libpaper-dev libpng-dev libpstoedit-dev
-        libraw-dev librsvg2-dev librust-bzip2-dev librust-jemalloc-sys-dev librust-malloc-buf-dev libsdl2-dev
-        libsuitesparseconfig5 libtbbmalloc2 libtcmalloc-minimal4 libticonv-dev libtool libtool-bin libumfpack5
-        libxml2-dev libzip-dev m4 meson nasm ninja-build opencl-c-headers opencl-headers php php-cli pstoedit
-        software-properties-common xmlto yasm zlib1g-dev
+        "$1" alien autoconf autoconf-archive binutils bison build-essential cmake curl
+        dbus-x11 flex fontforge git gperf imagemagick jq libc6 libcamd2 libdmalloc-dev
+        libdmalloc5 libfont-ttf-perl libgc-dev libgegl-0.4-0 libgegl-common libgimp2.0
+        libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgs-dev libheif-dev libjemalloc-dev
+        libnotify-bin libpstoedit-dev libticonv-dev libtool libtool-bin m4 meson nasm
+        ninja-build python3-dev yasm zlib1g-dev
 )
 
     # Initialize arrays for missing, available, and unavailable packages
@@ -435,15 +477,16 @@ pkgs_fn() {
 }
 
 install_autotrace_fn() {
-    curl -A "$user_agent" -Lso "$packages"/deb-files/autotrace.deb 'https://github.com/autotrace/autotrace/releases/download/travis-20200219.65/autotrace_0.40.0-20200219_all.deb'
-
-    cd "$packages"/deb-files || exit 1
-
-    echo '$ sudo apt install ./autotrace.deb'
-    if ! sudo apt -y install ./autotrace.deb; then
-        sudo dpkg --configure -a
-        sudo apt --fix-broken install
-        sudo apt update
+    if build 'autotrace' '0.40.0-20200219'; then
+        curl -A "$user_agent" -Lso "$packages"/deb-files/autotrace.deb 'https://github.com/autotrace/autotrace/releases/download/travis-20200219.65/autotrace_0.40.0-20200219_all.deb'
+        cd "$packages"/deb-files || exit 1
+        echo '$ sudo apt install ./autotrace.deb'
+        if ! sudo apt -y install ./autotrace.deb; then
+            sudo dpkg --configure -a
+            sudo apt --fix-broken install
+            sudo apt update
+        fi
+        build_done 'autotrace' '0.40.0-20200219'
     fi
 }
 
@@ -493,16 +536,16 @@ dl_libjxl_fn() {
                         libjxl_download="$url_base-ubuntu-18.04-$url_suffix"
                         libjxl_name='ubuntu-18.04'
                         ;;
-            *)          fail_fn "Unable to determine the OS architecture. Line: ${LINENO}";;
+            *)          fail_fn "Unable to determine the OS architecture. Line: $LINENO";;
         esac
 
         # DOWNLOAD THE LIBJXL DEBIAN FILES
         if ! curl -A "$user_agent" -m 10 -Lso "$packages/libjxl-$libjxl_name.tar.gz" "$libjxl_download"; then
-            fail_fn "Failed to download the libjxl archive: $packages/libjxl-$libjxl_name.tar.gz. Line: ${LINENO}"
+            fail_fn "Failed to download the libjxl archive: $packages/libjxl-$libjxl_name.tar.gz. Line: $LINENO"
         fi
         # EXTRACT THE DEBIAN FILES FOR INSTALLATION
         if ! tar -zxf "$packages/libjxl-$libjxl_name.tar.gz" -C "$packages"/deb-files --strip-components 1; then
-            fail_fn "Could not extract the libjxl archive: $packages/libjxl-$libjxl_name.tar.gz. Line: ${LINENO}"
+            fail_fn "Could not extract the libjxl archive: $packages/libjxl-$libjxl_name.tar.gz. Line: $LINENO"
         fi
         # INSTALL THE DOWNLOADED LIBJXL DEBIAN PACKAGES
         install_libjxl_fn
@@ -548,16 +591,14 @@ debian_ver_fn() {
         12)     pkgs_fn $pkgs_bookworm;;
         11)     pkgs_fn $pkgs_bullseye;;
         10)     pkgs_fn;;
-        *)      fail_fn "Could not detect the Debian version. Line: ${LINENO}";;
+        *)      fail_fn "Could not detect the Debian version. Line: $LINENO";;
     esac
 }
 
 ubuntu_ver_fn() {
     local pkgs_jammy pkgs_lunar
 
-    pkgs_focal='libfontconfig1-dev libstdc++-10-dev'
-    pkgs_jammy='libhwy-dev libcpu-features-dev libfontconfig-dev libstdc++-12-dev libsdl2-dev'
-    pkgs_jammy+=' libgc1 libhwy-dev libmimalloc2.0 libmimalloc-dev'
+    pkgs_jammy='libhwy-dev'
     pkgs_lunar="$pkgs_jammy librust-jpeg-decoder-dev"
 
     case "$VER" in
@@ -565,7 +606,7 @@ ubuntu_ver_fn() {
         22.04)     pkgs_fn $pkgs_jammy libhwy0;;
         20.04)     pkgs_fn $pkgs_focal;;
         18.04)     pkgs_fn;;
-        *)         fail_fn "Could not detect the Ubuntu version. Line: ${LINENO}";;
+        *)         fail_fn "Could not detect the Ubuntu version. Line: $LINENO";;
     esac
 }
 
@@ -581,7 +622,7 @@ elif [ -n "$find_lsb_release" ]; then
     OS="$(lsb_release -d | awk '{print $2}')"
     VER="$(lsb_release -r | awk '{print $2}')"
 else
-    fail_fn "Failed to define the \$OS and/or \$VER variables. Line: ${LINENO}"
+    fail_fn "Failed to define the \$OS and/or \$VER variables. Line: $LINENO"
 fi
 
 #
@@ -592,7 +633,7 @@ case "$OS" in
     Arch)       echo;;
     Debian)     debian_ver_fn;;
     Ubuntu)     ubuntu_ver_fn;;
-    *)          fail_fn "Could not detect the OS architecture. Line: ${LINENO}";;
+    *)          fail_fn "Could not detect the OS architecture. Line: $LINENO";;
 esac
 
 #
@@ -606,10 +647,12 @@ if build 'magick-libs' "$g_ver"; then
     fi
     cd "$packages"/deb-files || exit 1
     if ! curl -A "$user_agent" -m 10 -Lso "magick-libs-$g_ver.rpm" "https://imagemagick.org/archive/linux/CentOS/x86_64/ImageMagick-libs-$g_ver.x86_64.rpm"; then
-        fail_fn "Failed to download the magick-libs file. Line: ${LINENO}"
+        fail_fn "Failed to download the magick-libs file. Line: $LINENO"
     fi
-    sudo alien -d ./*.rpm
+    sudo alien -d ./*.rpm || fail_fn "Error: sudo alien -d ./*.rpm Line: $LINENO"
     if ! sudo dpkg -i ./*.deb; then
+        '$ error: sudo dpkg -i ./*.deb'
+        '$ attempting to fix APT...'
         sudo dpkg --configure -a
         sudo apt --fix-broken install
         sudo apt update
@@ -650,7 +693,7 @@ if [ ! -f '/usr/bin/composer' ]; then
         return 1
     fi
     if ! sudo php composer-setup.php --install-dir='/usr/bin' --filename=composer --quiet; then
-        fail_fn "Failed to install: /usr/bin/composer. Line: ${LINENO}"
+        fail_fn "Failed to install: /usr/bin/composer. Line: $LINENO"
     fi
     rm 'composer-setup.php'
 fi
@@ -683,7 +726,7 @@ fi
 case "$VER" in
     12|23.04)                   lt_ver='2.4.7';;
     10|11|18.04|20.04|22.04)    lt_ver='2.4.6';;
-    *)                          fail_fn "Unable to get the OS version. Line: ${LINENO}"
+    *)                          fail_fn "Unable to get the OS version. Line: $LINENO"
 esac
 
 if build 'libtool' "$lt_ver"; then
@@ -795,6 +838,24 @@ if build 'freetype' "$g_ver1"; then
 fi
 ffmpeg_libraries+=('--enable-libfreetype')
 
+git_ver_fn '1665' '3' 'T'
+if build 'libxml2' '2.12.0'; then
+    download 'https://gitlab.gnome.org/GNOME/libxml2/-/archive/v2.12.0/libxml2-v2.12.0.tar.bz2' 'libxml2-2.12.0.tar.bz2'
+    CFLAGS+=' -DNOLIBTOOL'
+    execute ./autogen.sh
+    execute cmake -B build \
+                  -DCMAKE_INSTALL_PREFIX="$workspace" \
+                  -DCMAKE_BUILD_TYPE=Release \
+                  -DBUILD_SHARED_LIBS=OFF \
+                  -DPYTHON_INCLUDE_DIR="$(python -c "import sysconfig; print(sysconfig.get_path('include'))")" \
+                  -DPYTHON_LIBRARY="$(python -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")" \
+                  -G Ninja -Wno-dev
+    execute ninja "-j$cpu_threads" -C build
+    execute ninja -C build install
+    build_done 'libxml2' '2.12.0'
+fi
+ffmpeg_libraries+=('--enable-libxml2')
+
 git_ver_fn '890' '2'
 fc_dir="$packages/fontconfig-$g_ver"
 if build 'fontconfig' "$g_ver"; then
@@ -860,13 +921,13 @@ fi
 git_ver_fn 'fribidi/fribidi' '1' 'T'
 if build 'fribidi' "$g_ver"; then
     download "https://github.com/fribidi/fribidi/archive/refs/tags/v$g_ver.tar.gz" "fribidi-$g_ver.tar.gz"
-    extracommands=('-D'{docs,tests}'=false')
+    extracmds=('-D'{docs,tests}'=false')
     execute autoreconf -fi
         execute meson setup build --prefix="$workspace" \
                               --buildtype=release \
                               --default-library=static \
                               --strip \
-                               "${extracommands[@]}"
+                               "${extracmds[@]}"
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
     build_done 'fribidi' "$g_ver"
@@ -1020,40 +1081,40 @@ aclocal_dir="$(sudo find /usr/ -type d -name 'aclocal' | sort | head -n1)"
 git_ver_fn 'ImageMagick/ImageMagick' '1' 'T'
 if build 'ImageMagick' '7.1.1-23'; then
     download 'https://github.com/ImageMagick/ImageMagick/archive/refs/tags/7.1.1-23.tar.gz' 'imagemagick-7.1.1-23.tar.gz'
-    autoreconf -fi -I "${aclocal_dir}"
+    execute autoreconf -fi -I "$aclocal_dir"
     mkdir build
     cd build || exit 1
-    ../configure --prefix="$install_dir" \
-                 --enable-ccmalloc \
-                 --enable-delegate-build \
-                 --enable-hdri \
-                 --enable-hugepages \
-                 --enable-legacy-support \
-                 --enable-opencl \
-                 --with-dejavu-font-dir=/usr/share/fonts/truetype/dejavu \
-                 --with-dmalloc \
-                 --with-fontpath=/usr/share/fonts \
-                 --with-fpx \
-                 --with-gcc-arch=native \
-                 --with-gslib \
-                 --with-gvc \
-                 --with-heic \
-                 --with-jemalloc \
-                 --with-modules \
-                 --with-perl \
-                 --with-pic \
-                 --with-pkgconfigdir="$workspace"/lib/pkgconfig \
-                 --with-quantum-depth=16 \
-                 --with-rsvg \
-                 --with-tcmalloc \
-                 --with-urw-base35-font-dir=/usr/share/fonts/type1/urw-base35 \
-                 --with-utilities \
-                 "$set_autotrace" \
-                 CPPFLAGS="$CPPFLAGS" \
-                 CXXFLAGS="$CXXFLAGS" \
-                 CFLAGS="$CFLAGS" \
-                 LDFLAGS="$LDFLAGS" \
-                 PKG_CONFIG="$(type -P pkg-config)"
+    execute ../configure --prefix="$install_dir" \
+                         --enable-ccmalloc \
+                         --enable-delegate-build \
+                         --enable-hdri \
+                         --enable-hugepages \
+                         --enable-legacy-support \
+                         --enable-opencl \
+                         --with-dejavu-font-dir=/usr/share/fonts/truetype/dejavu \
+                         --with-dmalloc \
+                         --with-fontpath=/usr/share/fonts \
+                         --with-fpx \
+                         --with-gcc-arch=native \
+                         --with-gslib \
+                         --with-gvc \
+                         --with-heic \
+                         --with-jemalloc \
+                         --with-modules \
+                         --with-perl \
+                         --with-pic \
+                         --with-pkgconfigdir="$workspace"/lib/pkgconfig \
+                         --with-quantum-depth=16 \
+                         --with-rsvg \
+                         --with-tcmalloc \
+                         --with-urw-base35-font-dir=/usr/share/fonts/type1/urw-base35 \
+                         --with-utilities \
+                         "$set_autotrace" \
+                         CPPFLAGS="$CPPFLAGS" \
+                         CXXFLAGS="$CXXFLAGS" \
+                         CFLAGS="$CFLAGS" \
+                         LDFLAGS="$LDFLAGS" \
+                         PKG_CONFIG="$(type -P pkg-config)"
     execute make "-j$cpu_threads"
     execute sudo make install
 fi
