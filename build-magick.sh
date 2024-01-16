@@ -1018,8 +1018,8 @@ box_out_banner_magick 'Build ImageMagick'
 aclocal_dir="$(sudo find /usr/ -type d -name 'aclocal' | sort | head -n1)"
 
 git_ver_fn 'ImageMagick/ImageMagick' '1' 'T'
-if build 'ImageMagick' "$g_ver"; then
-    download "https://github.com/ImageMagick/ImageMagick/archive/refs/tags/$g_ver.tar.gz" "imagemagick-$g_ver.tar.gz"
+if build 'ImageMagick' '7.1.1-23'; then
+    download 'https://github.com/ImageMagick/ImageMagick/archive/refs/tags/7.1.1-23.tar.gz' 'imagemagick-7.1.1-23.tar.gz'
     autoreconf -fi -I "${aclocal_dir}"
     mkdir build
     cd build || exit 1
