@@ -385,17 +385,16 @@ pkgs_fn() {
     local missing_packages pkg pkgs available_packages unavailable_packages
 
     pkgs=(
-        "$1" alien asciidoc autoconf autoconf-archive automake autopoint binutils bison
-        build-essential cmake curl dbus-x11 flex fontforge gettext gimp-data git gperf
-        imagemagick jq libamd2 libbabl-0.1-0 libc6 libc6-dev libcamd2 libccolamd2
-        libgegl-common libcholmod3 libcolamd2 libfont-ttf-perl libfreetype-dev libgc-dev
-        libgegl-0.4-0 libgimp2.0 libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgraphviz-dev
-        libgs-dev libheif-dev libltdl-dev libmetis5 libnotify-bin libnuma-dev libomp-dev
-        libpango1.0-dev libpaper-dev libpng-dev libpstoedit-dev libraw-dev librsvg2-dev
-        librust-bzip2-dev libsdl2-dev libsuitesparseconfig5 libtcmalloc-minimal4 libticonv-dev
-        libtool libtool-bin libumfpack5 libxml2-dev libzip-dev m4 meson nasm ninja-build
-        opencl-c-headers opencl-headers php php-cli pstoedit software-properties-common
-        xmlto yasm zlib1g-dev
+        "$1" alien asciidoc autoconf autoconf-archive automake autopoint binutils bison build-essential
+        cmake curl dbus-x11 flex fontforge gettext gimp-data git gperf imagemagick jq libamd2 libbabl-0.1-0
+        libc6 libc6-dev libcamd2 libccolamd2 libcholmod3 libcolamd2 libdmalloc-dev libdmalloc5 libfont-ttf-perl
+        libfreetype-dev libgc-dev libgegl-0.4-0 libgegl-common libgimp2.0 libgimp2.0-dev libgl2ps-dev libglib2.0-dev
+        libgraphviz-dev libgs-dev libheif-dev libjemalloc-dev libjemalloc2 libltdl-dev libmetis5 libmimalloc-dev
+        libmimalloc2.0 libnotify-bin libnuma-dev libomp-dev libpango1.0-dev libpaper-dev libpng-dev libpstoedit-dev
+        libraw-dev librsvg2-dev librust-bzip2-dev librust-jemalloc-sys-dev librust-malloc-buf-dev libsdl2-dev
+        libsuitesparseconfig5 libtbbmalloc2 libtcmalloc-minimal4 libticonv-dev libtool libtool-bin libumfpack5
+        libxml2-dev libzip-dev m4 meson nasm ninja-build opencl-c-headers opencl-headers php php-cli pstoedit
+        software-properties-common xmlto yasm zlib1g-dev
 )
 
     # Initialize arrays for missing, available, and unavailable packages
@@ -1019,8 +1018,8 @@ box_out_banner_magick 'Build ImageMagick'
 aclocal_dir="$(sudo find /usr/ -type d -name 'aclocal' | sort | head -n1)"
 
 git_ver_fn 'ImageMagick/ImageMagick' '1' 'T'
-if build 'ImageMagick' '7.1.1-23'; then
-    download 'https://github.com/ImageMagick/ImageMagick/archive/refs/tags/7.1.1-23.tar.gz' 'imagemagick-7.1.1-23.tar.gz'
+if build 'ImageMagick' "$g_ver"; then
+    download "https://github.com/ImageMagick/ImageMagick/archive/refs/tags/$g_ver.tar.gz" "imagemagick-$g_ver.tar.gz"
     autoreconf -fi -I "${aclocal_dir}"
     mkdir build
     cd build || exit 1
