@@ -1,23 +1,15 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1091,SC2034,SC2046,SC2066,SC2068,SC2086,SC2119,SC2162,SC2181
 
-############################################################################################################
-##
 ##  Script Version: 4.4
 ##  Updated: 01.16.24
-##
 ##  GitHub: https://github.com/slyfox1186/imagemagick-build-script
-##
 ##  Purpose: Build ImageMagick 7 from the source code obtained from ImageMagick's official GitHub repository
-##
 ##  Function: ImageMagick is the leading open-source command line image processor. It can blur, sharpen, warp,
 ##            reduce total file size, ect... The possibilities are vast
-##
 ##  Method: The script will search GitHub for the latest released version and upon execution will import the
 ##            information into the script.
-##
 ##  Added:
-##
 ##          - Debian OS support for versions, 11 & 12
 ##          - A browser user-agent string to the curl command
 ##          - A CPPFLAGS variable to ImageMagick's configure script
@@ -25,13 +17,10 @@
 ##          - Autotrace for Ubuntu (18/20/22).04 and Debian 10/11
 ##          - LCMS Support
 ##          - Deja-Vu Fonts
-##          - APT packages
-##
+##          - APT package
 ##  Fixed:
 ##          - Incorrect pkg-config location when building ImageMagick
 ##          - libjxl dependency
-##
-#############################################################################################################
 
 clear
 
