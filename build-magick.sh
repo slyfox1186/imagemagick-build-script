@@ -120,9 +120,7 @@ $workspace/share/pkgconfig:\
 /usr/lib/dbus-1.0/debug-build/lib/pkgconfig:\
 /usr/share/pkgconfig:\
 /lib64/pkgconfig:\
-/lib/pkgconfig:\
-/snap/core20/2015/usr/share/pkgconfig:\
-/snap/certbot/3462/usr/lib/x86_64-linux-gnu/pkgconfig\
+/lib/pkgconfig\
 "
 export PKG_CONFIG_PATH
 
