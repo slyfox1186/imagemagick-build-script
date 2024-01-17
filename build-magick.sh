@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1091,SC2034,SC2046,SC2066,SC2068,SC2086,SC2119,SC2162,SC2181
 
-##  Script Version: 4.4
-##  Updated: 01.16.24
+##  Script Version: 4.5
+##  Updated: 01.17.24
 ##  GitHub: https://github.com/slyfox1186/imagemagick-build-script
 ##  Purpose: Build ImageMagick 7 from the source code obtained from ImageMagick's official GitHub repository
 ##  Function: ImageMagick is the leading open-source command line image processor. It can blur, sharpen, warp,
@@ -10,6 +10,7 @@
 ##  Method: The script will search GitHub for the latest released version and upon execution will import the
 ##            information into the script.
 ##  Added:
+##          - Ubuntu OS support for versions, 22.04 23.04, 23.10, 24.04
 ##          - Debian OS support for versions, 11 & 12
 ##          - A browser user-agent string to the curl command
 ##          - A CPPFLAGS variable to ImageMagick's configure script
@@ -22,18 +23,33 @@
 ##          - Incorrect pkg-config location when building ImageMagick
 ##          - libjxl dependency
 
+
 clear
+
+script_ver=4.5
+
+# ANNOUNCE THE BUILD HAS BEGUN
+box_out_banner_header() {
+    input_char=$(echo "$@" | wc -c)
+    line=$(for i in $(seq 0 $input_char); do printf '-'; done)
+    tput bold
+    line="$(tput setaf 3)$line"
+    space=${line//-/ }
+    echo " $line"
+    printf '|' ; echo -n "$space" ; printf "%s\n" '|';
+    printf '| ' ;tput setaf 4; echo -n "$@"; tput setaf 3 ; printf "%s\n" ' |';
+    printf '|' ; echo -n "$space" ; printf "%s\n" '|';
+    echo " $line"
+    tput sgr 0
+}
+box_out_banner_header "ImageMagick Build Script v$script_ver"
 
 if [ "$EUID" -eq '0' ]; then
     printf "%s\n\n" 'This script must be run WITHOUT root/sudo'
     exit 1
 fi
 
-#
 # SET GLOBAL VARIABLES
-#
-
-script_ver=4.4
 progname="${0}"
 cwd="$PWD"/magick-build-script
 packages="$cwd"/packages
@@ -44,45 +60,59 @@ web_repo=https://github.com/slyfox1186/imagemagick-build-script
 regex_str='(rc|RC|master)+[0-9]*$'
 debug=OFF # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
 
-#
 # CREATE OUTPUT DIRECTORIES
-#
-
 mkdir -p "$packages" "$workspace"
 
-#
-# FIGURE OUT WHICH COMPILERS TO USE
-#
+# SET THE COMPILERS TO USE
 
 export CC=gcc CXX=g++
 
-#
-# SET COMPILER OPTIMIZATION FLAGS
-#
+# Download the script and capture only the last line of the output
+march=$(curl -sSL "https://get-gcc.optimizethis.net" | bash | tail -n1)
 
-CFLAGS="-g -O3 -pipe -march=native -I$workspace/include -I$install_dir/include/CL -I/usr/local/include -I/usr/include"
-CFLAGS+=' -I/usr/include/x86_64-linux-gnu -I/usr/include/openjpeg-2.5'
-CXXFLAGS='-g -O3 -pipe -march=native'
-CPPFLAGS="-I$workspace/include -I$install_dir/include/CL -I/usr/local/include -I/usr/include"
-CPPFLAGS+=' -I/usr/include/x86_64-linux-gnu -I/usr/include/openjpeg-2.5'
-LDFLAGS="-L$workspace/lib64 -L$workspace/lib -L/usr/local/lib64"
-LDFLAGS+=' -L/usr/local/lib -L/usr/lib64 -L/usr/lib -L/lib64 -L/lib'
+# Check if arch has a value
+if [ -n "$march" ]; then
+    printf "\n%s\n%s\n" "GCC architechure script sourced" "=========================================="
+    echo "Retrieved architecture: $march"
+else
+    echo "Failed to source the script or retrieve the architecture."
+    exit 1
+fi
+
+# SET COMPILER OPTIMIZATION FLAGs
+generate_flags() {
+    local flag_type="$1"
+    shift
+    printf " $flag_type%s" "$@"
+}
+
+# Define directories
+include_dirs=("$workspace/include" "/usr/local/include/CL" "/usr/local/include" "/usr/include" "/usr/include/x86_64-linux-gnu" "/usr/include/openjpeg-2.5")
+
+lib_dirs=("$workspace/lib64" "$workspace/lib" "/usr/local/lib64" "/usr/local/lib" "/usr/lib64" "/usr/lib" "/lib64" "/lib")
+
+# Generate flags
+common_flags="-g -O3 -pipe -march=$march"
+include_flags="$(generate_flags -I "${include_dirs[@]}")"
+lib_flags="$(generate_flags -L "${lib_dirs[@]}")"
+
+# Declare and set compiler flag variables
+CFLAGS="$common_flags"
+CXXFLAGS="$CFLAGS"
+CPPFLAGS="$include_flags"
+LDFLAGS="$lib_flags"
+
+# Export the flags
 export CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
 
-#
 # SET THE AVAILABLE CPU COUNT FOR PARALLEL PROCESSING (SPEEDS UP THE BUILD PROCESS)
-#
-
 if [ -f /proc/cpuinfo ]; then
     cpu_threads="$(grep --count ^processor '/proc/cpuinfo')"
 else
     cpu_threads="$(nproc --all)"
 fi
 
-#
 # SET THE PATH
-#
-
 if [ -d '/usr/lib/ccache/bin' ]; then
     ccache_dir='/usr/lib/ccache/bin'
 else
@@ -91,6 +121,7 @@ fi
 
 PATH="\
 $ccache_dir:\
+$workspace:/bin:\
 $HOME/perl5/bin:\
 $HOME/.cargo/bin:\
 $HOME/.local/bin:\
@@ -99,8 +130,7 @@ $HOME/.local/bin:\
 /usr/sbin:\
 /usr/bin:\
 /sbin:\
-/bin\
-"
+/bin"
 export PATH
 
 PKG_CONFIG_PATH="\
@@ -117,17 +147,13 @@ $workspace/share/pkgconfig:\
 /usr/lib64/pkgconfig:\
 /usr/lib/pkgconfig:\
 /usr/lib/x86_64-linux-gnu/pkgconfig:\
-/usr/lib/dbus-1.0/debug-build/lib/pkgconfig:\
 /usr/share/pkgconfig:\
 /lib64/pkgconfig:\
 /lib/pkgconfig\
 "
 export PKG_CONFIG_PATH
 
-#
 # CREATE FUNCTIONS
-#
-
 exit_fn() {
     printf "%s\n\n%s\n%s\n\n" \
         'The script has completed' \
@@ -154,8 +180,8 @@ cleanup_fn() {
     read -p 'Your choices are (1 or 2): ' choice
 
     case "$choice" in
-        1)      sudo rm -fr "$cwd";;
-        2)      clear;;
+        1)      sudo rm -fr "$cwd" ;;
+        2)      clear ;;
         *)
                 unset choice
                 clear
@@ -393,36 +419,35 @@ git_ver_fn() {
     if [ -n "$3" ]; then
         v_flag="$3"
         case "$v_flag" in
-                B)      t_flag=branches;;
-                R)      t_flag=releases;;
-                T)      t_flag=tags;;
+                B)      t_flag=branches ;;
+                R)      t_flag=releases ;;
+                T)      t_flag=tags ;;
                 *)      fail_fn "Could not detect the variable \"v_flag\" in the function \"git_ver_fn\". Line: $LINENO"
         esac
     fi
 
     case "$v_tag" in
-            1)      u_flag=git_1_fn;;
-            2)      u_flag=git_2_fn;;
-            3)      u_flag=git_3_fn;;
+            1)      u_flag=git_1_fn ;;
+            2)      u_flag=git_2_fn ;;
+            3)      u_flag=git_3_fn ;;
             *)      fail_fn "Could not detect the variable \"v_tag\" in the function \"git_ver_fn\". Line: $LINENO"
     esac
 
     "$u_flag" "$v_url" "$t_flag" 2>/dev/null
 }
 
-#
 # PRINT THE OPTIONS AVAILABLE WHEN MANUALLY RUNNING THE SCRIPT
-#
-
 pkgs_fn() {
     local missing_packages pkg pkgs available_packages unavailable_packages
 
     pkgs=(
         "$1" alien autoconf autoconf-archive binutils bison build-essential cmake curl
-        dbus-x11 flex fontforge git gperf imagemagick jq libc6 libcamd2 libdmalloc-dev
-        libdmalloc5 libfont-ttf-perl libgc-dev libgegl-0.4-0 libgegl-common libgimp2.0
-        libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgs-dev libheif-dev libjemalloc-dev
-        libnotify-bin libpstoedit-dev libticonv-dev libtool libtool-bin m4 meson nasm
+        dbus-x11 flex fontforge git gperf imagemagick jq libc6 libcamd2 libcpu-features-dev
+        libdmalloc-dev libdmalloc5 libfont-ttf-perl libfontconfig-dev libgc-dev libgc1
+        libgegl-0.4-0 libgegl-common libgimp2.0 libgimp2.0-dev libgl2ps-dev libglib2.0-dev
+        libgs-dev libheif-dev libhwy-dev libjemalloc-dev libjemalloc2 libnotify-bin
+        libpstoedit-dev librust-jpeg-decoder-dev librust-malloc-buf-dev libsharp-dev
+        libticonv-dev libtool libtool-bin libyuv-dev libyuv-utils libyuv0 m4 meson nasm
         ninja-build python3-dev yasm zlib1g-dev
 )
 
@@ -459,7 +484,7 @@ pkgs_fn() {
         echo "Installing available missing packages: ${available_packages[*]}"
         sudo apt install "${available_packages[@]}"
     else
-        printf "%s\n\n" "No missing packages to install or all missing packages are unavailable."
+        echo "No missing packages to install or all missing packages are unavailable."
     fi
 }
 
@@ -523,7 +548,7 @@ dl_libjxl_fn() {
                         libjxl_download="$url_base-ubuntu-18.04-$url_suffix"
                         libjxl_name='ubuntu-18.04'
                         ;;
-            *)          fail_fn "Unable to determine the OS architecture. Line: $LINENO";;
+            *)          fail_fn "Unable to determine the OS architecture. Line: $LINENO" ;;
         esac
 
         # DOWNLOAD THE LIBJXL DEBIAN FILES
@@ -540,25 +565,6 @@ dl_libjxl_fn() {
 }
 
 #
-# ANNOUNCE THE BUILD HAS BEGUN
-#
-
-box_out_banner_script_header() {
-    input_char=$(echo "$@" | wc -c)
-    line=$(for i in $(seq 0 $input_char); do printf '-'; done)
-    tput bold
-    line="$(tput setaf 3)$line"
-    space=${line//-/ }
-    echo " $line"
-    printf '|' ; echo -n "$space" ; printf "%s\n" '|';
-    printf '| ' ;tput setaf 4; echo -n "$@"; tput setaf 3 ; printf "%s\n" ' |';
-    printf '|' ; echo -n "$space" ; printf "%s\n" '|';
-    echo " $line"
-    tput sgr 0
-}
-box_out_banner_script_header "ImageMagick Build Script v$script_ver"
-
-#
 # INSTALL APT LIBRARIES
 #
 
@@ -567,33 +573,14 @@ printf "\n%s\n%s\n" \
     '=========================================='
 
 debian_ver_fn() {
-    local pkgs_bookworm pkgs_bullseye pkgs_debian
+    local pkgs_bookworm pkgs_bullseye pkgs_common pkgs_debian
 
-    pkgs_debian='libcpu-features-dev libfontconfig-dev libgc1 libdmalloc-dev libdmalloc5 libjemalloc-dev'
-    pkgs_debian+=' libjemalloc2 librust-malloc-buf-dev libyuv-utils libyuv-dev libyuv0 libsharp-dev'
-    pkgs_bullseye="$pkgs_debian libvmmalloc1 libvmmalloc-dev"
-    pkgs_bookworm+="$pkgs_debian libhwy-dev"
+    pkgs_bullseye="libvmmalloc1 libvmmalloc-dev"
 
     case "$VER" in
-        12)     pkgs_fn $pkgs_bookworm;;
-        11)     pkgs_fn $pkgs_bullseye;;
-        10)     pkgs_fn;;
-        *)      fail_fn "Could not detect the Debian version. Line: $LINENO";;
-    esac
-}
-
-ubuntu_ver_fn() {
-    local pkgs_jammy pkgs_lunar
-
-    pkgs_jammy='libhwy-dev'
-    pkgs_lunar="$pkgs_jammy librust-jpeg-decoder-dev"
-
-    case "$VER" in
-        23.04)     pkgs_fn $pkgs_lunar;;
-        22.04)     pkgs_fn $pkgs_jammy libhwy0;;
-        20.04)     pkgs_fn $pkgs_focal;;
-        18.04)     pkgs_fn;;
-        *)         fail_fn "Could not detect the Ubuntu version. Line: $LINENO";;
+        11)     pkgs_fn $pkgs_bullseye ;;
+        12)     pkgs_fn ;;
+        *)      fail_fn "Could not detect the Debian version. Line: $LINENO" ;;
     esac
 }
 
@@ -612,21 +599,15 @@ else
     fail_fn "Failed to define the \$OS and/or \$VER variables. Line: $LINENO"
 fi
 
-#
 # DISCOVER WHAT VERSION OF LINUX WE ARE RUNNING (DEBIAN OR UBUNTU)
-#
-
 case "$OS" in
-    Arch)       echo;;
-    Debian)     debian_ver_fn;;
-    Ubuntu)     ubuntu_ver_fn;;
-    *)          fail_fn "Could not detect the OS architecture. Line: $LINENO";;
+    Arch)       return ;;
+    Debian)     debian_ver_fn ;;
+    Ubuntu)     return ;;
+    *)          fail_fn "Could not detect the OS architecture. Line: $LINENO" ;;
 esac
 
-#
 # INSTALL OFFICIAL IMAGEMAGICK LIBS
-#
-
 git_ver_fn 'imagemagick/imagemagick' '1' 'T'
 if build 'magick-libs' "$g_ver"; then
     if [ ! -d "$packages"/deb-files ]; then
@@ -648,11 +629,7 @@ if build 'magick-libs' "$g_ver"; then
     build_done 'magick-libs' "$g_ver"
 fi
 
-#
 # INSTALL AUTOTRACE
-#
-
-# AUTOTRACE FAILS ON DEBIAN 12
 case "$OS" in
     Ubuntu)
                 install_autotrace_fn
@@ -665,10 +642,7 @@ else
     set_autotrace='--without-autotrace'
 fi
 
-#
 # INSTALL COMPOSER TO COMPILE GRAPHVIZ
-#
-
 if [ ! -f '/usr/bin/composer' ]; then
     EXPECTED_CHECKSUM="$(php -r 'copy("https://composer.github.io/installer.sig", "php://stdout");')"
     php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
@@ -685,19 +659,13 @@ if [ ! -f '/usr/bin/composer' ]; then
     rm 'composer-setup.php'
 fi
 
-#
 # INSTALL LIBJXL FROM DEBIAN FILES
-#
-
 if build 'libjxl' '0.8.2'; then
     dl_libjxl_fn
     build_done 'libjxl' '0.8.2'
 fi
 
-#
 # BEGIN BUILDING FROM SOURCE CODE
-#
-
 if build 'm4' 'latest'; then
     download 'https://ftp.gnu.org/gnu/m4/m4-latest.tar.xz'
     execute autoreconf -fi
@@ -710,9 +678,20 @@ if build 'm4' 'latest'; then
     build_done 'm4' 'latest'
 fi
 
+if build 'autoconf' 'latest'; then
+    download 'http://ftp.gnu.org/gnu/autoconf/autoconf-latest.tar.xz'
+    execute autoreconf -fi
+    execute ./configure --prefix="$workspace" \
+                        --{build,host}="$pc_type" \
+                        M4="$workspace/bin/m4"
+    execute make "-j$cpu_threads"
+    execute make install
+    build_done 'autoconf' 'latest'
+fi
+
 case "$VER" in
-    12|23.04)                   lt_ver='2.4.7';;
-    10|11|18.04|20.04|22.04)    lt_ver='2.4.6';;
+    12|23.04)                   lt_ver='2.4.7' ;;
+    10|11|18.04|20.04|22.04)    lt_ver='2.4.6' ;;
     *)                          fail_fn "Unable to get the OS version. Line: $LINENO"
 esac
 
@@ -1042,10 +1021,7 @@ if build 'dejavu-fonts' 'git'; then
     build_done 'dejavu-fonts' 'git'
 fi
 
-#
 # BEGIN BUILDING IMAGEMAGICK
-#
-
 echo
 box_out_banner_magick() {
     input_char=$(echo "$@" | wc -c)
