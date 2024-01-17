@@ -317,7 +317,7 @@ download_git() {
 }
 
 show_ver_fn() {
-    printf "\n%s\n\n" 'ImageMagick'\''s new version is:'
+    printf "%s\n\n" 'ImageMagick'\''s new version is:'
     if ! magick -version 2>/dev/null; then
         fail_fn "Failure to execute the command: magick -version. Line: $LINENO"
     else
@@ -586,15 +586,15 @@ debian_ver_fn() {
 
 find_lsb_release="$(sudo find /usr -type f -name 'lsb_release')"
 
-if [ -f '/etc/os-release' ]; then
+if [ -n "$find_lsb_release" ]; then
+    OS="$(lsb_release -d | awk '{print $2}')"
+    VER="$(lsb_release -r | awk '{print $2}')"
+elif [ -f '/etc/os-release' ]; then
     source '/etc/os-release'
     OS_TMP="$NAME"
     VER_TMP="$VERSION_ID"
     OS="$(echo "$OS_TMP" | awk '{print $1}')"
     VER="$(echo "$VER_TMP" | awk '{print $1}')"
-elif [ -n "$find_lsb_release" ]; then
-    OS="$(lsb_release -d | awk '{print $2}')"
-    VER="$(lsb_release -r | awk '{print $2}')"
 else
     fail_fn "Failed to define the \$OS and/or \$VER variables. Line: $LINENO"
 fi
