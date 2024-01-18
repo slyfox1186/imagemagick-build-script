@@ -525,30 +525,30 @@ dl_libjxl_fn() {
     if [ ! -f "$packages"/libjxl.tar.gz ]; then
         case "$VER" in
             12)
-                        libjxl_download="$url_base-debian-bookworm-$url_suffix"
-                        libjxl_name='debian-bookworm'
-                        ;;
+                                        libjxl_download="$url_base-debian-bookworm-$url_suffix"
+                                        libjxl_name='debian-bookworm'
+                                        ;;
             11)
-                        libjxl_download="$url_base-debian-bullseye-$url_suffix"
-                        libjxl_name='debian-bullseye'
-                        ;;
+                                        libjxl_download="$url_base-debian-bullseye-$url_suffix"
+                                        libjxl_name='debian-bullseye'
+                                        ;;
             10)
-                        libjxl_download="$url_base-debian-buster-$url_suffix"
-                        libjxl_name='debian-buster'
-                        ;;
-            22.04)
-                        libjxl_download="$url_base-ubuntu-22.04-$url_suffix"
-                        libjxl_name='ubuntu-22.04'
-                        ;;
+                                        libjxl_download="$url_base-debian-buster-$url_suffix"
+                                        libjxl_name='debian-buster'
+                                        ;;
+            22.04|23.04|23.10|24.04)
+                                        libjxl_download="$url_base-ubuntu-22.04-$url_suffix"
+                                        libjxl_name='ubuntu-22.04'
+                                        ;;
             20.04)
-                        libjxl_download="$url_base-ubuntu-20.04-$url_suffix"
-                        libjxl_name='ubuntu-20.04'
-                        ;;
+                                        libjxl_download="$url_base-ubuntu-20.04-$url_suffix"
+                                        libjxl_name='ubuntu-20.04'
+                                        ;;
             18.04)
-                        libjxl_download="$url_base-ubuntu-18.04-$url_suffix"
-                        libjxl_name='ubuntu-18.04'
-                        ;;
-            *)          fail_fn "Unable to determine the OS architecture. Line: $LINENO" ;;
+                                        libjxl_download="$url_base-ubuntu-18.04-$url_suffix"
+                                                               libjxl_name='ubuntu-18.04'
+                                        ;;
+            *)                          fail_fn "Unable to determine the OS architecture. Line: $LINENO" ;;
         esac
 
         # DOWNLOAD THE LIBJXL DEBIAN FILES
@@ -584,16 +584,17 @@ debian_ver_fn() {
     esac
 }
 
-if [ -f '/etc/os-release' ]; then
+find_lsb_release="$(sudo find /usr -type f -name 'lsb_release')"
+
+if [ -n "$find_lsb_release" ]; then
+    OS="$(lsb_release -d | awk '{print $2}')"
+    VER="$(lsb_release -r | awk '{print $2}')"
+elif [ -f '/etc/os-release' ]; then
     source '/etc/os-release'
     OS_TMP="$NAME"
     VER_TMP="$VERSION_ID"
     OS="$(echo "$OS_TMP" | awk '{print $1}')"
     VER="$(echo "$VER_TMP" | awk '{print $1}')"
-elif [ -n "$find_lsb_release" ]; then
-    find_lsb_release="$(sudo find /usr -type f -name 'lsb_release')"
-    OS="$(lsb_release -d | awk '{print $2}')"
-    VER="$(lsb_release -r | awk '{print $2}')"
 else
     fail_fn "Failed to define the \$OS and/or \$VER variables. Line: $LINENO"
 fi
