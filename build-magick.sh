@@ -599,13 +599,18 @@ else
     fail_fn "Failed to define the \$OS and/or \$VER variables. Line: $LINENO"
 fi
 
+get_os_ver_fn() {
 # DISCOVER WHAT VERSION OF LINUX WE ARE RUNNING (DEBIAN OR UBUNTU)
-case "$OS" in
-    Arch)       return ;;
-    Debian)     debian_ver_fn ;;
-    Ubuntu)     return ;;
-    *)          fail_fn "Could not detect the OS architecture. Line: $LINENO" ;;
-esac
+    case "$OS" in
+        Arch)       return ;;
+        Debian)     debian_ver_fn ;;
+        Ubuntu)     return ;;
+        *)          fail_fn "Could not detect the OS architecture. Line: $LINENO" ;;
+    esac
+}
+
+# GET THE OS NAME
+get_os_ver_fn
 
 # INSTALL OFFICIAL IMAGEMAGICK LIBS
 git_ver_fn 'imagemagick/imagemagick' '1' 'T'
@@ -690,9 +695,8 @@ if build 'autoconf' 'latest'; then
 fi
 
 case "$VER" in
-    12|23.04)                   lt_ver='2.4.7' ;;
-    10|11|18.04|20.04|22.04)    lt_ver='2.4.6' ;;
-    *)                          fail_fn "Unable to get the OS version. Line: $LINENO"
+    12)     lt_ver='2.4.7' ;;
+    *)      lt_ver='2.4.6' ;;
 esac
 
 if build 'libtool' "$lt_ver"; then
@@ -1038,13 +1042,10 @@ box_out_banner_magick() {
 }
 box_out_banner_magick 'Build ImageMagick'
 
-# FIND ANY MANUALLY INSTALLED ACLOCAL FOLDERS
-aclocal_dir="$(sudo find /usr/ -type d -name 'aclocal' | sort | head -n1)"
-
 git_ver_fn 'ImageMagick/ImageMagick' '1' 'T'
 if build 'ImageMagick' '7.1.1-23'; then
     download 'https://github.com/ImageMagick/ImageMagick/archive/refs/tags/7.1.1-23.tar.gz' 'imagemagick-7.1.1-23.tar.gz'
-    execute autoreconf -fi -I "$aclocal_dir"
+    execute autoreconf -fi
     mkdir build
     cd build || exit 1
     execute ../configure --prefix="$install_dir" \
