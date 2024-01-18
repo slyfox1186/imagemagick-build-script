@@ -320,9 +320,8 @@ show_ver_fn() {
     printf "%s\n\n" 'ImageMagick'\''s new version is:'
     if ! magick -version 2>/dev/null; then
         fail_fn "Failure to execute the command: magick -version. Line: $LINENO"
-    else
-        sleep 2
     fi
+    sleep 2
 }
 
 git_1_fn() {
