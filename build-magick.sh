@@ -79,7 +79,7 @@ else
     exit 1
 fi
 
-# SET COMPILER OPTIMIZATION FLAGs
+# SET COMPILER OPTIMIZATION FLAGS
 generate_flags() {
     local flag_type="$1"
     shift
