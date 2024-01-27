@@ -1054,11 +1054,11 @@ if build "ImageMagick" "7.1.1-23"; then
                          --enable-hugepages \
                          --enable-legacy-support \
                          --enable-opencl \
-                         --with-dejavu-font-dir=/usr/share/fonts/truetype/dejavu \
+                         --with-dejavu-font-dir="/usr/share/fonts/truetype/dejavu" \
                          --with-dmalloc \
                          --with-fontpath=/usr/share/fonts \
                          --with-fpx \
-                         --with-gcc-arch=native \
+                         --with-gcc-arch="$march" \
                          --with-gslib \
                          --with-gvc \
                          --with-heic \
@@ -1066,16 +1066,17 @@ if build "ImageMagick" "7.1.1-23"; then
                          --with-modules \
                          --with-perl \
                          --with-pic \
-                         --with-pkgconfigdir="$workspace"/lib/pkgconfig \
+                         --with-png \
+                         --with-pkgconfigdir="$workspace/lib/pkgconfig" \
                          --with-quantum-depth=16 \
                          --with-rsvg \
                          --with-tcmalloc \
-                         --with-urw-base35-font-dir=/usr/share/fonts/type1/urw-base35 \
+                         --with-urw-base35-font-dir="/usr/share/fonts/type1/urw-base35" \
                          --with-utilities \
                          "$set_autotrace" \
+                         CFLAGS="$CFLAGS" \
                          CPPFLAGS="$CPPFLAGS" \
                          CXXFLAGS="$CXXFLAGS" \
-                         CFLAGS="$CFLAGS" \
                          LDFLAGS="$LDFLAGS" \
                          PKG_CONFIG="$(type -P pkg-config)"
     execute make "-j$cpu_threads"
