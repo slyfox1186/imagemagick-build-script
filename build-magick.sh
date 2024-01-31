@@ -64,7 +64,6 @@ debug=OFF # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTE
 mkdir -p "$packages" "$workspace"
 
 # SET THE COMPILERS TO USE
-
 export CC="gcc" CXX="g++"
 
 # Download the script and capture only the last line of the output
@@ -107,7 +106,7 @@ export CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
 
 # SET THE AVAILABLE CPU COUNT FOR PARALLEL PROCESSING (SPEEDS UP THE BUILD PROCESS)
 if [ -f /proc/cpuinfo ]; then
-    cpu_threads="$(grep --count ^processor '/proc/cpuinfo')"
+    cpu_threads="$(grep --count ^processor /proc/cpuinfo)"
 else
     cpu_threads="$(nproc --all)"
 fi
