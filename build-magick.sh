@@ -956,19 +956,9 @@ if build "openjpeg" "$g_ver"; then
     execute cmake -B build \
                   -DCMAKE_INSTALL_PREFIX="$workspace" \
                   -DCMAKE_BUILD_TYPE=Release \
+                  -DBUILD_SHARED_LIBS=OFF \
                   -DBUILD_TESTING=OFF \
-                  -DBUILD_SHARED_LIBS=ON \
                   -DBUILD_THIRDPARTY=ON \
-                  -DCPACK_BINARY_DEB=ON \
-                  -DCPACK_BINARY_FREEBSD=ON \
-                  -DCPACK_BINARY_IFW=ON \
-                  -DCPACK_BINARY_NSIS=ON \
-                  -DCPACK_BINARY_RPM=ON \
-                  -DCPACK_BINARY_TBZ2=ON \
-                  -DCPACK_BINARY_TXZ=ON \
-                  -DCPACK_SOURCE_RPM=ON \
-                  -DCPACK_SOURCE_ZIP=ON \
-                  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
                   -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
