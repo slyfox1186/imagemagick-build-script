@@ -23,7 +23,6 @@
 ##          - Incorrect pkg-config location when building ImageMagick
 ##          - libjxl dependency
 
-
 clear
 
 script_ver=4.5
@@ -582,6 +581,10 @@ debian_ver_fn() {
     esac
 }
 
+ubuntu_ver_fn() {
+    pkgs_fn
+}
+
 find_lsb_release="$(sudo find /usr -type f -name 'lsb_release')"
 
 if [ -n "$find_lsb_release" ]; then
@@ -602,7 +605,7 @@ get_os_ver_fn() {
     case "$OS" in
         Arch)       return ;;
         Debian)     debian_ver_fn ;;
-        Ubuntu)     return ;;
+        Ubuntu)     ubuntu_ver_fn ;;
         *)          fail_fn "Could not detect the OS architecture. Line: $LINENO" ;;
     esac
 }
