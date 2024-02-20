@@ -54,10 +54,9 @@ packages="$cwd/packages"
 workspace="$cwd/workspace"
 install_dir=/usr/local
 pc_type=x86_64-linux-gnu
-user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
 web_repo=https://github.com/slyfox1186/imagemagick-build-script
 regex_string='(rc|RC|Rc|rC|alpha|beta|master|pre)+[0-9]*$'
-debug=OFF # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
+debug=ON # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
 
 # CREATE OUTPUT DIRECTORIES
 mkdir -p "$packages" "$workspace"
@@ -210,10 +209,10 @@ download() {
         echo "The file \"$dl_file\" is already downloaded."
     else
         echo "Downloading \"$dl_url\" saving as \"$dl_file\""
-        if ! curl -A "$user_agent" -m 10 -Lso "$target_file" "$dl_url"; then
+        if ! curl -Lso "$target_file" "$dl_url"; then
             printf "\n%s\n\n" "The script failed to download \"$dl_file\" and will try again in 10 seconds..."
             sleep 10
-            if ! curl -A "$user_agent" -m 10 -Lso "$target_file" "$dl_url"; then
+            if ! curl -Lso "$target_file" "$dl_url"; then
                 fail_fn "The script failed to download \"$dl_file\" twice and will now exit. Line: $LINENO"
             fi
         fi
@@ -451,7 +450,7 @@ pkgs_fn() {
         libjemalloc-dev libjemalloc2 libjxl-dev libnotify-bin libpstoedit-dev
         librust-jpeg-decoder-dev librust-malloc-buf-dev libsharp-dev libticonv-dev
         libtool libtool-bin libyuv-dev libyuv-utils libyuv0 m4 meson nasm ninja-build
-        python3-dev yasm zlib1g-dev php-dev libpng-dev
+        python3-dev yasm zlib1g-dev php-dev
 )
 
     # Initialize arrays for missing, available, and unavailable packages
@@ -493,10 +492,10 @@ pkgs_fn() {
 
 install_autotrace_fn() {
     if build "autotrace" "0.40.0-20200219"; then
-        curl -A "$user_agent" -Lso "$packages/deb-files/autotrace.deb" "https://github.com/autotrace/autotrace/releases/download/travis-20200219.65/autotrace_0.40.0-20200219_all.deb"
+        curl -A "$user_agent" -Lso "$packages/deb-files/autotrace-0.40.0-20200219.deb" "https://github.com/autotrace/autotrace/releases/download/travis-20200219.65/autotrace_0.40.0-20200219_all.deb"
         cd "$packages/deb-files" || exit 1
-        echo "\$ sudo apt install ./autotrace.deb"
-        if ! sudo apt -y install ./autotrace.deb; then
+        echo "\$ sudo apt install ./autotrace-0.40.0-20200219.deb"
+        if ! sudo apt -y install ./autotrace-0.40.0-20200219.deb; then
             sudo dpkg --configure -a
             sudo apt --fix-broken install
             sudo apt update
@@ -625,17 +624,12 @@ if build "autoconf" "latest"; then
     build_done "autoconf" "latest"
 fi
 
-case "$VER" in
-    12)     lt_ver="2.4.7" ;;
-    *)      lt_ver="2.4.6" ;;
-esac
-
-if build "libtool" "$lt_ver"; then
-    download "https://ftp.gnu.org/gnu/libtool/libtool-$lt_ver.tar.xz"
+if build "libtool" "2.4.7"; then
+    download "https://ftp.gnu.org/gnu/libtool/libtool-2.4.7.tar.xz"
     execute ./configure --prefix="$workspace" --with-pic M4="$workspace"/bin/m4
     execute make "-j$cpu_threads"
     execute make install
-    build_done "libtool" "$lt_ver"
+    build_done "libtool" "2.4.7"
 fi
 
 if build "pkg-config" "0.29.2"; then
@@ -703,6 +697,16 @@ if build "ghostscript" "10.02.1"; then
     execute make "-j$cpu_threads"
     execute make install
     build_done "ghostscript" "10.02.1"
+fi
+
+find_git_repo "pnggroup/libpng" "1" "T"
+if build "libpng" "$version"; then
+    download "https://github.com/pnggroup/libpng/archive/refs/tags/v$version.tar.gz" "libpng-$version.tar.gz"
+    execute autoreconf -fi
+    execute ./configure --prefix="$workspace" --with-pic
+    execute make "-j$cpu_threads"
+    execute make install
+    build_done "libpng" "$version"
 fi
 
 git_call_fn "https://chromium.googlesource.com/webm/libwebp" "libwebp-git"
@@ -1007,7 +1011,7 @@ if build "$repo_name" "${version//\$ /}"; then
                          --with-urw-base35-font-dir="/usr/share/fonts/type1/urw-base35" \
                          --with-utilities \
                          "$set_autotrace" \
-                         CFLAGS="-DCL_TARGET_OPENCL_VERSION=220" \
+                         CFLAGS="-DCL_TARGET_OPENCL_VERSION=300" \
                          PKG_CONFIG="$workspace/bin/pkg-config"
     execute make "-j$cpu_threads"
     execute sudo make install
