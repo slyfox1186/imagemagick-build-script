@@ -56,7 +56,7 @@ install_dir=/usr/local
 pc_type=x86_64-linux-gnu
 web_repo=https://github.com/slyfox1186/imagemagick-build-script
 regex_string='(rc|RC|Rc|rC|alpha|beta|master|pre)+[0-9]*$'
-debug=ON # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
+debug=OFF # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
 
 # CREATE OUTPUT DIRECTORIES
 mkdir -p "$packages" "$workspace"
