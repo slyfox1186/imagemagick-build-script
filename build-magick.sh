@@ -38,7 +38,7 @@ cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
 GIT_REGEX='(rc|rC|Rc|RC|alpha|beta|master|pre)+[0-9]*$'
-debug=OFF # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
+debug=ON # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
 
 # Pre-defined color variables
 RED='\033[0;31m'
@@ -71,7 +71,7 @@ CXX=g++
 CFLAGS="-g -O3 -pipe -march=native -w"
 CXXFLAGS="-g -O3 -pipe -march=native -w"
 CPPFLAGS="-I$workspace/include"
-LDFLAGS="-L$workspace/lib64 -L$workspace/lib -lpng16"
+LDFLAGS="-L$workspace/lib64 -L$workspace/lib -lpng12"
 EXTRALIBS="-ldl -lm -lpthread -lz"
 export CC CFLAGS CPPFLAGS CXX CXXFLAGS LDFLAGS
 
@@ -723,14 +723,13 @@ if build "ghostscript" "10.02.1"; then
     build_done "ghostscript" "10.02.1"
 fi
 
-git_caller "https://github.com/ImageMagick/png.git" "png-git"
-if build "$repo_name" "${version//\$ /}"; then
-    git_clone "$git_url"
+if build "libpng" "1.2.59"; then
+    download "https://github.com/pnggroup/libpng/archive/refs/tags/v1.2.59.tar.gz" "libpng-1.2.59.tar.gz"
     execute autoreconf -fi
     execute ./configure --prefix="$workspace" --with-pic
     execute make "-j$cpu_threads"
     execute make install
-    build_done "$repo_name" "$repo_version"
+    build_done "libpng" "1.2.59"
 fi
 
 git_caller "https://chromium.googlesource.com/webm/libwebp" "libwebp-git"
@@ -896,7 +895,7 @@ if build "jemalloc" "$repo_version"; then
                         CFLAGS="-fPIC"
     execute make "-j$cpu_threads"
     execute make install
-    build_done "jemalloc" "$repo_version"
+    build_done "$repo_name" "$repo_version"
 fi
 
 git_caller "https://github.com/KhronosGroup/OpenCL-SDK.git" "opencl-sdk-git" "recurse"
@@ -953,7 +952,7 @@ if build "lcms2" "$repo_version"; then
     execute make install
     build_done "lcms2" "$repo_version"
 fi
-ffmpeg_libraries+=("--enable-lcms2")
+CONFIGURE_OPTIONS+=("--enable-lcms2")
 
 git_caller "https://github.com/dejavu-fonts/dejavu-fonts.git" "dejavu-fonts-git"
 if build "$repo_name" "${version//\$ /}"; then
