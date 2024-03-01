@@ -30,6 +30,15 @@ if [ "$EUID" -ne "0" ]; then
     exit 1
 fi
 
+# SET GLOBAL VARIABLES
+progname="${0}"
+script_ver=1.1
+cwd="$PWD/magick-build-script"
+packages="$cwd/packages"
+workspace="$cwd/workspace"
+regex_string='(rc|rC|Rc|RC|alpha|beta|master|pre)+[0-9]*$'
+debug=ON # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
+
 # ANNOUNCE THE BUILD HAS BEGUN
 box_out_banner_header() {
     input_char=$(echo "$@" | wc -c)
@@ -46,28 +55,18 @@ box_out_banner_header() {
 }
 box_out_banner_header "ImageMagick Build Script v$script_ver"
 
-# SET GLOBAL VARIABLES
-progname="${0}"
-script_ver=1.1
-cwd="$PWD/magick-build-script"
-packages="$cwd/packages"
-workspace="$cwd/workspace"
-install_dir=/usr/local
-pc_type=x86_64-linux-gnu
-web_repo=https://github.com/slyfox1186/imagemagick-build-script
-regex_string='(rc|RC|Rc|rC|alpha|beta|master|pre)+[0-9]*$'
-debug=OFF # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
-
 # CREATE OUTPUT DIRECTORIES
 mkdir -p "$packages" "$workspace"
 
 # SET THE COMPILERS TO USE AND THE COMPILER OPTIMIZATION FLAGS
 CC=gcc
 CXX=g++
-CFLAGS="-g -O3 -march=native"
-CXXFLAGS="-g -O3 -march=native"
-EXTRALIBS="-lm -lpthread -lz -lgcc_s -lrt -ldl"
-export CC CFLAGS CXX CXXFLAGS
+CFLAGS="-g -O3 -pipe -march=native -w"
+CXXFLAGS="-g -O3 -pipe -march=native -w"
+CPPFLAGS="-I$workspace/include"
+LDFLAGS="-L$workspace/lib64 -L$workspace/lib -lpng16"
+EXTRALIBS="-ldl -lm -lpthread -lz"
+export CC CFLAGS CPPFLAGS CXX CXXFLAGS LDFLAGS
 
 # SET THE AVAILABLE CPU COUNT FOR PARALLEL PROCESSING (SPEEDS UP THE BUILD PROCESS)
 if [ -f /proc/cpuinfo ]; then
@@ -77,10 +76,10 @@ else
 fi
 
 # SET THE PATH
-if [ -d "/usr/lib/ccache/bin" ]; then
-    ccache_dir="/usr/lib/ccache/bin"
+if [ -d /usr/lib/ccache/bin ]; then
+    ccache_dir=/usr/lib/ccache/bin
 else
-    ccache_dir="/usr/lib/ccache"
+    ccache_dir=/usr/lib/ccache
 fi
 
 PATH="\
@@ -120,9 +119,9 @@ export PKG_CONFIG_PATH
 
 # CREATE FUNCTIONS
 exit_fn() {
-    printf "%s\n\n%s\n\n" \
-        "The script has completed" \
-        "Make sure to star this repository to show your support!"
+    echo "The script has completed" \
+    echo "Make sure to star this repository to show your support!"
+    echo
     exit 0
 }
 
@@ -134,15 +133,16 @@ fail_fn() {
 cleanup_fn() {
     local choice
 
-    printf "\n%s\n\n%s\n%s\n\n" \
-        "Do you want to remove the build files?" \
-        "[1] Yes" \
-        "[2] No"
+    echo
+    echo "Do you want to remove the build files?"
+    echo "[1] Yes"
+    echo "[2] No"
+    echo
     read -p "Your choices are (1 or 2): " choice
 
     case "$choice" in
         1)      sudo rm -fr "$cwd" ;;
-        2)      return ;;
+        2)      ;;
         *)
                 unset choice
                 echo
@@ -168,9 +168,9 @@ execute() {
 }
 
 build() {
-    printf "\n%s\n%s\n" \
-        "Building $1 - version $2" \
-        "=========================================="
+    echo
+    echo "Building $1 - version $2"
+    echo "=========================================="
 
     if [ -f "$packages/$1.done" ]; then
         if grep -Fx "$2" "$packages/$1.done" >/dev/null; then
@@ -181,13 +181,16 @@ build() {
     return 0
 }
 
-build_done() { echo "$2" > "$packages/$1.done"; }
+build_done() {
+    echo "$2" > "$packages/$1.done"
+}
 
-versionsion_fn() {
+version_fn() {
     scipt_name="$(basename "${0}")"
-    printf "\n%s\n\n%s\n\n" \
-        "Script name: $scipt_name" \
-        "Script version: $script_ver"
+    echo
+    echo "Script name: $scipt_name"
+    echo "Script version: $script_ver"
+    echo
 }
 
 download() {
@@ -604,7 +607,6 @@ fi
 if build "m4" "latest"; then
     download "https://ftp.gnu.org/gnu/m4/m4-latest.tar.xz"
     execute ./configure --prefix="$workspace" \
-                        --{build,host,target}="$pc_type" \
                         --disable-nls \
                         --enable-c++ \
                         --enable-threads=posix
@@ -616,9 +618,7 @@ fi
 if build "autoconf" "latest"; then
     download "http://ftp.gnu.org/gnu/autoconf/autoconf-latest.tar.xz"
     execute autoreconf -fi
-    execute ./configure --prefix="$workspace" \
-                        --{build,host}="$pc_type" \
-                        M4="$workspace/bin/m4"
+    execute ./configure --prefix="$workspace" M4="$workspace/bin/m4"
     execute make "-j$cpu_threads"
     execute make install
     build_done "autoconf" "latest"
@@ -636,7 +636,6 @@ if build "pkg-config" "0.29.2"; then
     download "https://pkgconfig.freedesktop.org/releases/pkg-config-0.29.2.tar.gz"
     execute autoconf
     execute ./configure --prefix="$workspace" \
-                        --{build,host}="$pc_type" \
                         --enable-silent-rules \
                         --with-pc-path="$PKG_CONFIG_PATH" \
                         CFLAGS="-I$workspace/include" \
@@ -676,8 +675,8 @@ if build "$repo_name" "${version//\$ /}"; then
                   -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads"
     execute ninja "-j$cpu_threads" install
-    save_version=$(build_done "$repo_name" "$version")
-    $(build_done "$repo_name" "$version")
+    save_version=build_done "$repo_name" "$version"
+    build_done "$repo_name" "$version"
 fi
 
 git_call_fn "https://github.com/imageMagick/libfpx.git" "libfpx-git"
@@ -687,7 +686,7 @@ if build "$repo_name" "$version"; then
     execute ./configure --prefix="$workspace" --with-pic
     execute make "-j$cpu_threads"
     execute make install
-    $(build_done "$repo_name" "$version")
+    build_done "$repo_name" "$version"
 fi
 
 if build "ghostscript" "10.02.1"; then
@@ -699,14 +698,15 @@ if build "ghostscript" "10.02.1"; then
     build_done "ghostscript" "10.02.1"
 fi
 
-find_git_repo "pnggroup/libpng" "1" "T"
-if build "libpng" "$version"; then
-    download "https://github.com/pnggroup/libpng/archive/refs/tags/v$version.tar.gz" "libpng-$version.tar.gz"
+
+git_call_fn "https://github.com/ImageMagick/png.git" "png-git"
+if build "$repo_name" "${version//\$ /}"; then
+    download_git "$git_url"
     execute autoreconf -fi
     execute ./configure --prefix="$workspace" --with-pic
     execute make "-j$cpu_threads"
     execute make install
-    build_done "libpng" "$version"
+    build_done "$repo_name" "$version"
 fi
 
 git_call_fn "https://chromium.googlesource.com/webm/libwebp" "libwebp-git"
@@ -728,7 +728,7 @@ if build "$repo_name" "${version//\$ /}"; then
                   -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
-    $(build_done "$repo_name" "$version")
+    build_done "$repo_name" "$version"
 fi
 ffmpeg_libraries+=("--enable-libwebp")
 
@@ -793,38 +793,23 @@ git_call_fn "https://github.com/fribidi/c2man.git" "c2man-git"
 if build "$repo_name" "${version//\$ /}"; then
     download_git "$git_url"
     execute ./Configure -desO \
-                        -D bash=$(type -P bash) \
                         -D bin="$workspace/bin" \
                         -D cc="/usr/bin/cc" \
                         -D d_gnu="/usr/lib/x86_64-linux-gnu" \
-                        -D find=$(type -P find) \
                         -D gcc="/usr/bin/gcc" \
-                        -D gzip=$(type -P gzip) \
                         -D installmansrc="$workspace/share/man" \
                         -D ldflags="$LDFLAGS" \
-                        -D less=$(type -P less) \
-                        -D locincpth="$workspace/include" \
-                        -D loclibpth="$workspace/lib" \
-                        -D make=$(type -P make) \
-                        -D more=$(type -P more) \
+                        -D libpth="/usr/lib64 /usr/lib /lib64 /lib" \
+                        -D locincpth="$workspace/include /usr/local/include /usr/include" \
+                        -D loclibpth="$workspace/lib64 $workspace/lib /usr/local/lib64 /usr/local/lib" \
                         -D osname="$OS" \
-                        -D perl=$(type -P perl) \
                         -D prefix="$workspace" \
                         -D privlib="$workspace/lib/c2man" \
-                        -D privlibexp="$workspace/lib/c2man" \
-                        -D sleep=$(type -P sleep) \
-                        -D tail=$(type -P tail) \
-                        -D tar=$(type -P tar) \
-                        -D tr=$(type -P tr) \
-                        -D troff=$(type -P troff) \
-                        -D uniq=$(type -P uniq) \
-                        -D uuname=$(uname -s) \
-                        -D vi=$(type -P vi) \
-                        -D yacc=$(type -P yacc)
+                        -D privlibexp="$workspace/lib/c2man"
     execute make depend
     execute make "-j$cpu_threads"
     execute make install
-    $(build_done "$repo_name" "$version")
+    build_done "$repo_name" "$version"
 fi
 
 find_git_repo "fribidi/fribidi" "1" "T"
@@ -920,7 +905,7 @@ if build "$repo_name" "${version//\$ /}"; then
             -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
-    $(build_done "$repo_name" "$version")
+    build_done "$repo_name" "$version"
 fi
 
 find_git_repo "uclouvain/openjpeg" "1" "T"
@@ -943,10 +928,7 @@ find_git_repo "mm2/Little-CMS" "1" "T"
 if build "lcms2" "$version"; then
     download "https://github.com/mm2/Little-CMS/archive/refs/tags/lcms$version.tar.gz" "lcms2-$version.tar.gz"
     execute ./autogen.sh
-    execute ./configure --prefix="$workspace" \
-                        --{build,host}="$pc_type" \
-                        --with-pic \
-                        --with-threaded
+    execute ./configure --prefix="$workspace" --with-pic --with-threaded
     execute make "-j$cpu_threads"
     execute make install
     build_done "lcms2" "$version"
@@ -959,7 +941,7 @@ if build "$repo_name" "${version//\$ /}"; then
     wget -cqP "resources" "http://www.unicode.org/Public/UNIDATA/UnicodeData.txt" "http://www.unicode.org/Public/UNIDATA/Blocks.txt"
     execute ln -sf "$fc_dir"/fc-lang "resources/fc-lang"
     execute make "-j$cpu_threads" full-ttf
-    $(build_done "$repo_name" "$version")
+    build_done "$repo_name" "$version"
 fi
 
 # BEGIN BUILDING IMAGEMAGICK
@@ -979,20 +961,19 @@ box_out_banner_magick() {
 }
 box_out_banner_magick "Build ImageMagick"
 
-git_call_fn "https://github.com/ImageMagick/ImageMagick.git" "imagemagick-git"
+git_call_fn "https://github.com/imagemagick/imagemagick.git" "imagemagick-git"
 if build "$repo_name" "${version//\$ /}"; then
     download_git "$git_url"
     execute autoreconf -fi
-    mkdir build
-    cd build || exit 1
-    execute ../configure --prefix="$install_dir" \
+    mkdir build; cd build || exit 1
+    execute ../configure --prefix=/usr/local \
                          --enable-ccmalloc \
                          --enable-delegate-build \
                          --enable-hdri \
                          --enable-hugepages \
                          --enable-legacy-support \
                          --enable-opencl \
-                         --with-dejavu-font-dir="/usr/share/fonts/truetype/dejavu" \
+                         --with-dejavu-font-dir=/usr/share/fonts/truetype/dejavu \
                          --with-dmalloc \
                          --with-fontpath=/usr/share/fonts \
                          --with-fpx \
@@ -1008,18 +989,22 @@ if build "$repo_name" "${version//\$ /}"; then
                          --with-quantum-depth=16 \
                          --with-rsvg \
                          --with-tcmalloc \
-                         --with-urw-base35-font-dir="/usr/share/fonts/type1/urw-base35" \
+                         --with-urw-base35-font-dir=/usr/share/fonts/type1/urw-base35 \
                          --with-utilities \
                          "$set_autotrace" \
-                         CFLAGS="-DCL_TARGET_OPENCL_VERSION=300" \
-                         PKG_CONFIG="$workspace/bin/pkg-config"
+                         CFLAGS="$CFLAGS -DCL_TARGET_OPENCL_VERSION=300" \
+                         CPPFLAGS="$CPPFLAGS" \
+                         CXXFLAGS="$CXXFLAGS" \
+                         LDFLAGS="$LDFLAGS" \
+                         PKG_CONFIG="$workspace/bin/pkg-config" \
+                         PKG_CONFIG_PATH="$workspace/lib/pkgconfig"
     execute make "-j$cpu_threads"
     execute sudo make install
 fi
 
 # LDCONFIG MUST BE RUN NEXT IN ORDER TO UPDATE FILE CHANGES OR THE MAGICK COMMAND WILL NOT WORK
-sudo ldconfig "$install_dir"
-sudo ldconfig "$install_dir/lib"
+sudo ldconfig /usr/local
+sudo ldconfig /usr/local/lib
 
 # SHOW THE NEWLY INSTALLED MAGICK VERSION
 show_ver_fn
