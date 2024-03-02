@@ -604,7 +604,7 @@ fi
 
 if build "libtool" "2.4.7"; then
     download "https://ftp.gnu.org/gnu/libtool/libtool-2.4.7.tar.xz"
-    execute ./configure --prefix="$workspace" --with-pic M4="$workspace"/bin/m4
+    execute ./configure --prefix="$workspace" --with-pic M4="$workspace/bin/m4"
     execute make "-j$cpu_threads"
     execute make install
     build_done "libtool" "2.4.7"
@@ -821,7 +821,7 @@ find_git_repo "host-oman/libraqm" "1" "T"
 if build "raqm" "$version"; then
     download "https://codeload.github.com/host-oman/libraqm/tar.gz/refs/tags/v$version" "raqm-$version.tar.gz"
     execute meson setup build --prefix="$workspace" \
-                              --includedir="$workspace"/include \
+                              --includedir="$workspace/include" \
                               --buildtype=release \
                               --default-library=static \
                               --strip \
