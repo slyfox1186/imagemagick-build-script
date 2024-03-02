@@ -330,21 +330,20 @@ show_ver_fn() {
 github_repo() {
     # Initial setup
     local count=1
-    local curl_results
     local git_repo="$1"
     local git_url="$2"
     version=""
 
     # Fetch GitHub tags page
     while [ $count -le 10 ]; do
-        curl_results=$(curl -fsSL "https://github.com/$git_repo/$git_url")
-
-        # Extract potential version lines, excluding release candidates more rigorously
-        # Filtering out any version that includes 'rc' or 'RC' or 'Rc', followed by any digits, regardless of preceding characters
-        lines=$(echo "$curl_results" | grep -oP 'href="[^"]*/tags/[^"]*\.tar\.gz"')
-
         # Apply case-insensitive matching for RC versions to exclude them
-        version=$(echo "$lines" | grep -oP '\/tags\/\K(v?[\w.-]+?)(?=\.tar\.gz)' | grep -viP '(rc)[0-9]*' | head -n 1 | sed 's/^v//')
+        version=$(curl -fsSL "https://github.com/$git_repo/$git_url" |
+                  grep -oP 'href="[^"]*/tags/[^"]*\.tar\.gz"' |
+                  grep -oP '\/tags\/\K(v?[\w.-]+?)(?=\.tar\.gz)' |
+                  grep -viP '(rc)[0-9]*' |
+                  head -n1 |
+                  sed 's/^v//'
+             )
 
         # Check if a non-RC version was found
         if [ -n "$version" ]; then
@@ -651,8 +650,7 @@ if build "$repo_name" "${version//\$ /}"; then
                   -DENABLE_STATIC=ON \
                   -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads"
-    execute ninja "-j$cpu_threads" install
-    save_version=build_done "$repo_name" "$version"
+    execute ninja install
     build_done "$repo_name" "$version"
 fi
 
