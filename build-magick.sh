@@ -194,6 +194,21 @@ build_done() {
     echo "$2" > "$packages/$1.done"
 }
 
+get_os_version() {
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        OS_TMP="$NAME"
+        VER_TMP="$VERSION_ID"
+        OS=$(echo "$OS_TMP" | awk '{print $1}')
+        VER=$(echo "$VER_TMP" | awk '{print $1}')
+    elif [[ -n "$find_lsb_release" ]]; then
+        OS=$(lsb_release -d | awk '{print $2}')
+        VER=$(lsb_release -r | awk '{print $2}')
+    else
+        fail "Failed to define \"\$OS\" and/or \"\$VER\". Line: $LINENO"
+    fi
+}
+
 download() {
     dl_path="$packages"
     dl_url="$1"
@@ -281,15 +296,14 @@ git_clone() {
               head -n1
          )
 
-        # If no tags found, use the latest commit hash as the version
+    # If no tags found, use the latest commit hash as the version
+    if [[ -z "$version" ]]; then
+        version=$(git ls-remote "$repo_url" |
+                  grep "HEAD" |
+                  awk '{print substr($1,1,7)}'
+             )
         if [[ -z "$version" ]]; then
-            version=$(git ls-remote "$repo_url" |
-                      grep "HEAD" |
-                      awk '{print substr($1,1,7)}'
-                 )
-            if [[ -z "$version" ]]; then
-                version="unknown"
-            fi
+            version="unknown"
         fi
     fi
 
@@ -675,13 +689,26 @@ if build "ghostscript" "10.02.1"; then
     build_done "ghostscript" "10.02.1"
 fi
 
-if build "libpng" "1.6.43"; then
-    download "https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.43.tar.gz" "libpng-1.6.43.tar.gz"
-    execute autoreconf -fi
-    execute ./configure --prefix="$workspace" --with-pic
-    execute make "-j$cpu_threads"
-    execute make install
-    build_done "libpng" "1.6.43"
+get_os_version # Ubuntu throws an error if you don't install png12, however Debian works without issue.
+if [[ "$OS" == "Ubuntu" ]]; then
+    if build "libpng" "1.2.59"; then
+        download "https://github.com/pnggroup/libpng/archive/refs/tags/v1.2.59.tar.gz" "libpng-1.2.59.tar.gz"
+        execute autoreconf -fi
+        execute ./configure --prefix="$workspace" --with-pic
+        execute make "-j$cpu_threads"
+        execute make install
+        build_done "libpng" "1.2.59"
+    fi
+else
+    find_git_repo "pnggroup/libpng" "1" "T"
+    if build "libpng" "$version"; then
+        download "https://github.com/pnggroup/libpng/archive/refs/tags/v$version.tar.gz" "libpng-$version.tar.gz"
+        execute autoreconf -fi
+        execute ./configure --prefix="$workspace" --with-pic
+        execute make "-j$cpu_threads"
+        execute make install
+        build_done "libpng" "$version"
+    fi
 fi
 
 git_caller "https://chromium.googlesource.com/webm/libwebp" "libwebp-git"
