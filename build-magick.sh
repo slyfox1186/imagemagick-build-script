@@ -134,10 +134,6 @@ log() {
     echo -e "${GREEN}[INFO]${NC} $1"
 }
 
-log_update() {
-    echo -e "${GREEN}[UPDATE]${NC} $1"
-}
-
 warn() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
