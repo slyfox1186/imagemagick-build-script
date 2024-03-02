@@ -77,9 +77,9 @@ export CC CFLAGS CXX CXXFLAGS
 
 # SET THE AVAILABLE CPU COUNT FOR PARALLEL PROCESSING (SPEEDS UP THE BUILD PROCESS)
 if [ -f /proc/cpuinfo ]; then
-    cpu_threads="$(grep --count ^processor /proc/cpuinfo)"
+    cpu_threads=$(grep --count ^processor /proc/cpuinfo)
 else
-    cpu_threads="$(nproc --all)"
+    cpu_threads=$(nproc --all)
 fi
 
 # SET THE PATH
@@ -168,12 +168,12 @@ execute() {
     echo "$ $*"
 
     if [ "$debug" = "ON" ]; then
-        if ! output="$("$@")"; then
+        if ! output=$("$@"); then
             notify-send -t 5000 "Failed to execute: $*" 2>/dev/null
             fail "Failed to execute: $*"
         fi
     else
-        if ! output="$("$@" 2>&1)"; then
+        if ! output=$("$@" 2>&1); then
             notify-send -t 5000 "Failed to execute: $*" 2>/dev/null
             fail "Failed to execute: $*"
         fi
@@ -592,9 +592,9 @@ fi
 
 # INSTALL COMPOSER TO COMPILE GRAPHVIZ
 if [ ! -f "/usr/bin/composer" ]; then
-    EXPECTED_CHECKSUM="$(php -r 'copy("https://composer.github.io/installer.sig", "php://stdout");')"
+    EXPECTED_CHECKSUM=$(php -r 'copy("https://composer.github.io/installer.sig", "php://stdout");')
     php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
-    ACTUAL_CHECKSUM="$(php -r "echo hash_file('sha384', 'composer-setup.php');")"
+    ACTUAL_CHECKSUM=$(php -r "echo hash_file('sha384', 'composer-setup.php');")
 
     if [ "$EXPECTED_CHECKSUM" != "$ACTUAL_CHECKSUM" ]; then
         >&2 echo "ERROR: Invalid installer checksum"
@@ -782,7 +782,7 @@ if build "fontconfig" "$version"; then
                         --enable-iconv \
                         --enable-libxml2 \
                         --enable-static \
-                        --with-arch="$(uname -m)" \
+                        --with-arch=$(uname -m) \
                         --with-libiconv-prefix=/usr \
                         --with-pic
     execute make "-j$cpu_threads"
