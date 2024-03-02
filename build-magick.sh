@@ -194,21 +194,6 @@ build_done() {
     echo "$2" > "$packages/$1.done"
 }
 
-get_os_version() {
-    if [[ -f /etc/os-release ]]; then
-        . /etc/os-release
-        OS_TMP="$NAME"
-        VER_TMP="$VERSION_ID"
-        OS=$(echo "$OS_TMP" | awk '{print $1}')
-        VER=$(echo "$VER_TMP" | awk '{print $1}')
-    elif [[ -n "$find_lsb_release" ]]; then
-        OS=$(lsb_release -d | awk '{print $2}')
-        VER=$(lsb_release -r | awk '{print $2}')
-    else
-        fail "Failed to define \"\$OS\" and/or \"\$VER\". Line: $LINENO"
-    fi
-}
-
 download() {
     dl_path="$packages"
     dl_url="$1"
@@ -344,33 +329,35 @@ show_ver_fn() {
 }
 
 github_repo() {
-    # Initial count
-    local count curl_results git_repo git_url
-    git_repo="$1"
-    git_url="$2"
-    count=1
+    # Initial setup
+    local count=1
+    local curl_results
+    local git_repo="$1"
+    local git_url="$2"
+    version=""
 
-    # Loop until the condition is met or a maximum limit is reached
-    while [ $count -le 10 ]  # You can set an upper limit to prevent an infinite loop
-    do
+    # Fetch GitHub tags page
+    while [ $count -le 10 ]; do
         curl_results=$(curl -fsSL "https://github.com/$git_repo/$git_url")
 
-        # Extract the specific line
-        line=$(echo "$curl_results" | grep -o 'href="[^"]*\.tar\.gz"' | sed -n "${count}p")
+        # Extract potential version lines, excluding release candidates more rigorously
+        # Filtering out any version that includes 'rc' or 'RC' or 'Rc', followed by any digits, regardless of preceding characters
+        lines=$(echo "$curl_results" | grep -oP 'href="[^"]*/tags/[^"]*\.tar\.gz"')
 
-        # Check if the line matches the pattern (version without 'RC'/'rc')
-        if echo "$line" | grep -qoP '(\d+\.\d+\.\d+(-\d+)?)(?=.tar.gz)'; then
-            # Extract and print the version number
-            version=$(echo "$line" | grep -oP '(\d+\.\d+\.\d+(-\d+)?)(?=.tar.gz)')
+        # Apply case-insensitive matching for RC versions to exclude them
+        version=$(echo "$lines" | grep -oP '\/tags\/\K(v?[\w.-]+?)(?=\.tar\.gz)' | grep -viP '(rc)[0-9]*' | head -n 1 | sed 's/^v//')
+
+        # Check if a non-RC version was found
+        if [ -n "$version" ]; then
             break
         else
-            # Increment the count if no match is found
+            # Increment the count if no non-RC match is found
             ((count++))
         fi
     done
 
-    # Check if a version was found
-    if [ $count -gt 10 ]; then
+    # Handle case where no non-RC version is found after max attempts
+    if [ -z "$version" ]; then
         fail "No matching version found without RC/rc suffix."
     fi
 }
@@ -537,7 +524,7 @@ else
     fail "Failed to define the \$OS and/or \$VER variables. Line: $LINENO"
 fi
 
-get_os_ver_fn() {
+get_os_version() {
 # DISCOVER WHAT VERSION OF LINUX WE ARE RUNNING (DEBIAN OR UBUNTU)
     case "$OS" in
         Arch)       return ;;
@@ -548,7 +535,7 @@ get_os_ver_fn() {
 }
 
 # GET THE OS NAME
-get_os_ver_fn
+get_os_version
 
 # INSTALL OFFICIAL IMAGEMAGICK LIBS
 find_git_repo "imagemagick/imagemagick" "1" "T"
@@ -666,8 +653,8 @@ if build "$repo_name" "${version//\$ /}"; then
                   -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads"
     execute ninja "-j$cpu_threads" install
-    save_version=$(build_done "$repo_name" "$version")
-    $(build_done "$repo_name" "$version")
+    save_version=build_done "$repo_name" "$version"
+    build_done "$repo_name" "$version"
 fi
 
 git_caller "https://github.com/imageMagick/libfpx.git" "libfpx-git"
@@ -677,16 +664,19 @@ if build "$repo_name" "$version"; then
     execute ./configure --prefix="$workspace" --with-pic
     execute make "-j$cpu_threads"
     execute make install
-    $(build_done "$repo_name" "$version")
+    build_done "$repo_name" "$version"
 fi
 
-if build "ghostscript" "10.02.1"; then
-    download "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs10021/ghostscript-10.02.1.tar.xz"
+find_git_repo "ArtifexSoftware/ghostpdl-downloads" "1" "T"
+modify_version="${version#gs}"
+modify_version=$(sed -r 's/(..)(..)(.)/\1.\2.\3/' <<< "$modify_version")
+if build "ghostscript" "$version"; then
+    download "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/$version/ghostscript-$modify_version.tar.xz" "ghostscript-$modify_version.tar.xz"
     execute ./autogen.sh
     execute ./configure --prefix="$workspace" --with-libiconv=native
     execute make "-j$cpu_threads"
     execute make install
-    build_done "ghostscript" "10.02.1"
+    build_done "ghostscript" "$version"
 fi
 
 get_os_version # Ubuntu throws an error if you don't install png12, however Debian works without issue.
@@ -730,7 +720,7 @@ if build "$repo_name" "${version//\$ /}"; then
                   -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
-    $(build_done "$repo_name" "$version")
+    build_done "$repo_name" "$version"
 fi
 
 find_git_repo "7950" "2"
@@ -808,7 +798,7 @@ if build "$repo_name" "${version//\$ /}"; then
     execute make depend
     execute make "-j$cpu_threads"
     execute make install
-    $(build_done "$repo_name" "$version")
+    build_done "$repo_name" "$version"
 fi
 
 find_git_repo "fribidi/fribidi" "1" "T"
@@ -904,7 +894,7 @@ if build "$repo_name" "${version//\$ /}"; then
             -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
-    $(build_done "$repo_name" "$version")
+    build_done "$repo_name" "$version"
 fi
 
 find_git_repo "uclouvain/openjpeg" "1" "T"
@@ -924,6 +914,7 @@ if build "openjpeg" "$version"; then
 fi
 
 find_git_repo "mm2/Little-CMS" "1" "T"
+version="${version//lcms/}"
 if build "lcms2" "$version"; then
     download "https://github.com/mm2/Little-CMS/archive/refs/tags/lcms$version.tar.gz" "lcms2-$version.tar.gz"
     execute ./autogen.sh
@@ -939,7 +930,7 @@ if build "$repo_name" "${version//\$ /}"; then
     wget -cqP "resources" "http://www.unicode.org/Public/UNIDATA/UnicodeData.txt" "http://www.unicode.org/Public/UNIDATA/Blocks.txt"
     execute ln -sf "$fc_dir/fc-lang" "resources/fc-lang"
     execute make "-j$cpu_threads" full-ttf
-    $(build_done "$repo_name" "$version")
+    build_done "$repo_name" "$version"
 fi
 
 # BEGIN BUILDING IMAGEMAGICK
