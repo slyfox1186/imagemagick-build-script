@@ -270,38 +270,16 @@ git_clone() {
     local version
 
     # Try to get the latest tag
-    if [[ "$repo_flag" == "ant" ]]; then
-        version=$(git ls-remote --tags "https://github.com/apache/ant.git" |
-                  awk -F'/' '/\/v?[0-9]+\.[0-9]+(\.[0-9]+)?(\^\{\})?$/ {
-                      tag = $4;
-                      sub(/^v/, "", tag);
-                      if (tag !~ /\^\{\}$/) print tag
-                  }' |
-                  sort -rV |
-                  head -n1
-              )
-    elif [[ "$repo_flag" == "ffmpeg" ]]; then
-        version=$(git ls-remote --tags https://git.ffmpeg.org/ffmpeg.git |
-                  awk -F/ '/\/n?[0-9]+\.[0-9]+(\.[0-9]+)?(\^\{\})?$/ {
-                      tag = $3;
-                      sub(/^[v]/, "", tag);
-                      print tag
-                  }' |
-                  grep -v '\^{}' |
-                  sort -rV |
-                  head -n1
-             )
-    else
-        version=$(git ls-remote --tags "$repo_url" |
-                  awk -F'/' '/\/v?[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9]+)?(\^\{\})?$/ {
-                      tag = $3;
-                      sub(/^v/, "", tag);
-                      print tag
-                  }' |
-                  grep -v '\^{}' |
-                  sort -rV |
-                  head -n1
-             )
+    version=$(git ls-remote --tags "$repo_url" |
+              awk -F'/' '/\/v?[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9]+)?(\^\{\})?$/ {
+                  tag = $3;
+                  sub(/^v/, "", tag);
+                  print tag
+              }' |
+              grep -v '\^{}' |
+              sort -rV |
+              head -n1
+         )
 
         # If no tags found, use the latest commit hash as the version
         if [[ -z "$version" ]]; then
@@ -727,7 +705,6 @@ if build "$repo_name" "${version//\$ /}"; then
     execute ninja -C build install
     $(build_done "$repo_name" "$version")
 fi
-ffmpeg_libraries+=("--enable-libwebp")
 
 find_git_repo "7950" "2"
 version="${version#VER-}"
@@ -745,7 +722,6 @@ if build "freetype" "$version1"; then
     execute ninja -C build install
     build_done "freetype" "$version1"
 fi
-ffmpeg_libraries+=("--enable-libfreetype")
 
 find_git_repo "1665" "3" "T"
 if build "libxml2" "2.12.0"; then
@@ -761,7 +737,6 @@ if build "libxml2" "2.12.0"; then
     execute ninja -C build install
     build_done "libxml2" "2.12.0"
 fi
-ffmpeg_libraries+=("--enable-libxml2")
 
 find_git_repo "890" "2"
 fc_dir="$packages/fontconfig-$version"
@@ -823,7 +798,6 @@ if build "fribidi" "$version"; then
     execute ninja -C build install
     build_done "fribidi" "$version"
 fi
-ffmpeg_libraries+=("--enable-libfribidi")
 
 # UBUNTU BIONIC FAILS TO BUILD XML2
 if [[ "$VER" != "18.04" ]]; then
@@ -932,7 +906,6 @@ if build "lcms2" "$version"; then
     execute make install
     build_done "lcms2" "$version"
 fi
-ffmpeg_libraries+=("--enable-lcms2")
 
 git_caller "https://github.com/dejavu-fonts/dejavu-fonts.git" "dejavu-fonts-git"
 if build "$repo_name" "${version//\$ /}"; then
