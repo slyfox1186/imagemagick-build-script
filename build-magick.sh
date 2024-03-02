@@ -25,7 +25,7 @@
 ##  Removed:
 ##          - unnecessary commands in imagemagick's configure script
 
-if [ "$EUID" -ne "0" ]; then
+if [ "$EUID" -ne 0 ]; then
     echo "This script must be run with root/sudo"
     echo
     exit 1
