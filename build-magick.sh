@@ -27,7 +27,6 @@
 
 if [ "$EUID" -ne 0 ]; then
     echo "This script must be run with root/sudo"
-    echo
     exit 1
 fi
 
