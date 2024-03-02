@@ -225,9 +225,9 @@ download() {
     target_dir="$dl_path/$output_dir"
 
     if [ -f "$target_file" ]; then
-        log "The file \"$dl_file\" is already downloaded."
+        echo "The file \"$dl_file\" is already downloaded."
     else
-        log "Downloading \"$dl_url\" saving as \"$dl_file\""
+        echo "Downloading \"$dl_url\" saving as \"$dl_file\""
         if ! curl -Lso "$target_file" "$dl_url"; then
             echo
             warn "The script failed to download \"$dl_file\" and will try again in 10 seconds..."
@@ -237,7 +237,7 @@ download() {
                 fail "The script failed to download \"$dl_file\" twice and will now exit. Line: $LINENO"
             fi
         fi
-        log "Download Completed"
+        echo "Download Completed"
     fi
 
     if [ -d "$target_dir" ]; then
