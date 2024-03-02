@@ -500,40 +500,36 @@ install_autotrace_fn() {
     echo "=========================================="
 
 debian_ver_fn() {
-    local pkgs_bookworm pkgs_bullseye pkgs_common pkgs_debian
-
-    pkgs_bullseye="libvmmalloc1 libvmmalloc-dev"
-
     case "$VER" in
-        11)     pkgs_fn $pkgs_bullseye ;;
+        11)     pkgs_fn "libvmmalloc1 libvmmalloc-dev" ;;
         12)     pkgs_fn ;;
         *)      fail "Could not detect the Debian version. Line: $LINENO" ;;
     esac
 }
 
-if command -v lsb_release &>/dev/null; then
-    OS=$(lsb_release -si)
-    VER=$(lsb_release -sr)
-elif [ -f /etc/os-release ]; then
-    . /etc/os-release
-    OS=$NAME
-    VER=$VERSION_ID
-else
-    fail "Failed to define the \$OS and/or \$VER variables. Line: $LINENO"
-fi
-
 get_os_version() {
-# DISCOVER WHAT VERSION OF LINUX WE ARE RUNNING (DEBIAN OR UBUNTU)
-    case "$OS" in
-        Arch)       return ;;
-        Debian)     debian_ver_fn ;;
-        Ubuntu)     pkgs_fn ;;
-        *)          fail "Could not detect the OS architecture. Line: $LINENO" ;;
-    esac
+    if command -v lsb_release &>/dev/null; then
+        OS=$(lsb_release -si)
+        VER=$(lsb_release -sr)
+    elif [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$NAME
+        VER=$VERSION_ID
+    else
+        fail "Failed to define the \$OS and/or \$VER variables. Line: $LINENO"
+    fi
 }
 
 # GET THE OS NAME
 get_os_version
+
+# DISCOVER WHAT VERSION OF LINUX WE ARE RUNNING (DEBIAN OR UBUNTU)
+case "$OS" in
+    Arch)       return ;;
+    Debian)     debian_ver_fn ;;
+    Ubuntu)     pkgs_fn ;;
+    *)          fail "Could not detect the OS architecture. Line: $LINENO" ;;
+esac
 
 # INSTALL OFFICIAL IMAGEMAGICK LIBS
 find_git_repo "imagemagick/imagemagick" "1" "T"
@@ -650,7 +646,7 @@ if build "$repo_name" "${version//\$ /}"; then
                   -DENABLE_STATIC=ON \
                   -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads"
-    execute ninja install
+    execute ninja "-j$cpu_threads" install
     build_done "$repo_name" "$version"
 fi
 
