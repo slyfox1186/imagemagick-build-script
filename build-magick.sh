@@ -942,7 +942,7 @@ git_caller "https://github.com/dejavu-fonts/dejavu-fonts.git" "dejavu-fonts-git"
 if build "$repo_name" "${version//\$ /}"; then
     git_clone "$git_url"
     wget -cqP "resources" "http://www.unicode.org/Public/UNIDATA/UnicodeData.txt" "http://www.unicode.org/Public/UNIDATA/Blocks.txt"
-    execute ln -sf "$fc_dir"/fc-lang "resources/fc-lang"
+    execute ln -sf "$fc_dir/fc-lang" "resources/fc-lang"
     execute make "-j$cpu_threads" full-ttf
     $(build_done "$repo_name" "$version")
 fi
