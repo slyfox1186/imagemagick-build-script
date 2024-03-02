@@ -956,8 +956,8 @@ if build "$repo_name" "${version//\$ /}"; then
                          --with-modules \
                          --with-perl \
                          --with-pic \
-                         --with-png \
                          --with-pkgconfigdir="$workspace/lib/pkgconfig" \
+                         --with-png \
                          --with-quantum-depth=16 \
                          --with-rsvg \
                          --with-tcmalloc \
