@@ -83,15 +83,15 @@ else
 fi
 
 # SET THE PATH
-if [ -d "/usr/lib/ccache/bin" ]; then
-    ccache_dir="/usr/lib/ccache/bin"
+if [ -d /usr/lib/ccache/bin ]; then
+    ccache_dir=/usr/lib/ccache/bin
 else
-    ccache_dir="/usr/lib/ccache"
+    ccache_dir=/usr/lib/ccache
 fi
 
 # Set the path variable
-PATH="$set_ccache_dir:$cuda_bin_path:$workspace/bin:$HOME/.local/bin:/usr/local/ant/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-export PATH
+PATH="$ccache_dir:$workspace/bin:$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH
 
 # Set the pkg_config_path variable
 PKG_CONFIG_PATH="\
