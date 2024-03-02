@@ -844,7 +844,8 @@ if build "jemalloc" "$version"; then
                         --disable-stats \
                         --enable-autogen \
                         --enable-static \
-                        --enable-xmalloc
+                        --enable-xmalloc \
+                        CFLAGS="-fPIC"
     execute make "-j$cpu_threads"
     execute make install
     build_done "jemalloc" "$version"
@@ -899,9 +900,7 @@ find_git_repo "mm2/Little-CMS" "1" "T"
 if build "lcms2" "$version"; then
     download "https://github.com/mm2/Little-CMS/archive/refs/tags/lcms$version.tar.gz" "lcms2-$version.tar.gz"
     execute ./autogen.sh
-    execute ./configure --prefix="$workspace" \
-                        --with-pic \
-                        --with-threaded
+    execute ./configure --prefix="$workspace" --with-pic --with-threaded
     execute make "-j$cpu_threads"
     execute make install
     build_done "lcms2" "$version"
