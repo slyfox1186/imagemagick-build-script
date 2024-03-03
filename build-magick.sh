@@ -296,9 +296,6 @@ git_clone() {
     if [[ ! "$version" == "$store_prior_version" ]]; then
         if [[ "$recurse_flag" -eq 1 ]]; then
             recurse="--recursive"
-        elif [[ -n "$3" ]]; then
-            output_directory="$download_path/$3"
-            target_directory="$output_directory"
         fi
         [[ -d "$target_directory" ]] && rm -fr "$target_directory"
         # Clone the repository
@@ -805,7 +802,6 @@ if build "fribidi" "$version"; then
     build_done "fribidi" "$version"
 fi
 
-
 find_git_repo "harfbuzz/harfbuzz" "1" "T"
 if build "harfbuzz" "$version"; then
     download "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/$version.tar.gz" "harfbuzz-$version.tar.gz"
@@ -819,6 +815,7 @@ if build "harfbuzz" "$version"; then
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
     build_done "harfbuzz" "$version"
+fi
 
 find_git_repo "host-oman/libraqm" "1" "T"
 if build "raqm" "$version"; then
@@ -921,7 +918,6 @@ fi
 
 parse_autotrace
 
-# BEGIN BUILDING IMAGEMAGICK
 echo
 box_out_banner_magick() {
     input_char=$(echo "$@" | wc -c)
