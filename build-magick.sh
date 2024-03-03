@@ -177,7 +177,7 @@ execute() {
 
 build() {
     echo
-    echo "Building $1 - version $2"
+    echo -e "${GREEN}Building ${YELLOW}$1${NC} - ${GREEN}version ${YELLOW}$2${NC}"
     echo "=========================================="
 
     if [ -f "$packages/$1.done" ]; then
@@ -677,24 +677,17 @@ fi
 
 get_os_version # Ubuntu throws an error if you don't install png12, however Debian works without issue.
 if [[ "$OS" == "Ubuntu" ]]; then
-    if build "libpng" "1.2.59"; then
-        download "https://github.com/pnggroup/libpng/archive/refs/tags/v1.2.59.tar.gz" "libpng-1.2.59.tar.gz"
-        execute autoreconf -fi
-        execute ./configure --prefix="$workspace" --with-pic
-        execute make "-j$cpu_threads"
-        execute make install
-        build_done "libpng" "1.2.59"
-    fi
+    version="1.2.59"
 else
     find_git_repo "pnggroup/libpng" "1" "T"
-    if build "libpng" "$version"; then
-        download "https://github.com/pnggroup/libpng/archive/refs/tags/v$version.tar.gz" "libpng-$version.tar.gz"
-        execute autoreconf -fi
-        execute ./configure --prefix="$workspace" --with-pic
-        execute make "-j$cpu_threads"
-        execute make install
-        build_done "libpng" "$version"
-    fi
+fi
+if build "libpng" "$version"; then
+    download "https://github.com/pnggroup/libpng/archive/refs/tags/v$version.tar.gz" "libpng-$version.tar.gz"
+    execute autoreconf -fi
+    execute ./configure --prefix="$workspace" --with-pic
+    execute make "-j$cpu_threads"
+    execute make install
+    build_done "libpng" "$version"
 fi
 
 git_caller "https://chromium.googlesource.com/webm/libwebp" "libwebp-git"
