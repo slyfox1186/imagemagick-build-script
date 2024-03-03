@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1091,SC2000,SC2046,SC2066,SC2068,SC2086,SC2119,SC2162,SC2181,SC2206
 
-##  Script Version: 1.2
-##  Updated: 03.03.24
+##  Script Version: 1.1
+##  Updated: 02.20.24
 ##  GitHub: https://github.com/slyfox1186/imagemagick-build-script
 ##  Purpose: Build ImageMagick 7 from the source code obtained from ImageMagick's official GitHub repository
 ##  Function: ImageMagick is the leading open-source command line image processor. It can blur, sharpen, warp,
@@ -21,7 +21,7 @@
 ##          - APT package
 ##  Fixed:
 ##          - error with the pkg-config location when building ImageMagick
-##          - error in the variable PKG_CONFIG_folder_path
+##          - error in the variable PKG_CONFIG_PATH
 ##  Removed:
 ##          - unnecessary commands in imagemagick's configure script
 
@@ -30,13 +30,13 @@ if [[ "$EUID" -ne 0 ]]; then
     exit 1
 fi
 
-# Set the global variables
-script_ver=1.2
+# SET GLOBAL VARIABLES
+script_ver=1.1
 cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
-rc_filter='(rc|RC|Rc|rC|alpha|beta|master|pre)+[0-9]*$'
-debug=OFF # Change this variable to "ON" for help with troubleshooting unexpected issues during the build
+regex_string='(rc|RC|Rc|rC|alpha|beta|master|pre)+[0-9]*$'
+debug=OFF # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
 
 # Pre-defined color variables
 RED='\033[0;31m'
@@ -44,7 +44,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
-# Main script banner
+# ANNOUNCE THE BUILD HAS BEGUN
 box_out_banner_header() {
     input_char=$(echo "$@" | wc -c)
     line=$(for i in $(seq 0 $input_char); do printf "-"; done)
@@ -60,32 +60,32 @@ box_out_banner_header() {
 }
 box_out_banner_header "ImageMagick Build Script v$script_ver"
 
-# Create the output directories
+# CREATE OUTPUT DIRECTORIES
 mkdir -p "$packages" "$workspace"
 
-# Set the compilers and their optimization flags
+# SET THE COMPILERS TO USE AND THE COMPILER OPTIMIZATION FLAGS
 CC=gcc
 CXX=g++
 CFLAGS="-g -O3 -pipe -march=native"
 CXXFLAGS="-g -O3 -pipe -march=native"
 export CC CFLAGS CXX CXXFLAGS
 
-# Set the available CPU count to enable parallel processing
+# SET THE AVAILABLE CPU COUNT FOR PARALLEL PROCESSING (SPEEDS UP THE BUILD PROCESS)
 if [[ -f /proc/cpuinfo ]]; then
     cpu_threads=$(grep --count ^processor /proc/cpuinfo)
 else
     cpu_threads=$(nproc --all)
 fi
 
-# Set the ccache folder_path
+# SET THE PATH
 if [[ -d /usr/lib/ccache/bin ]]; then
     ccache_dir=/usr/lib/ccache/bin
 else
     ccache_dir=/usr/lib/ccache
 fi
 
-# Set the folder_path variable
-folder_path="\
+# Set the path variable
+PATH="\
 $ccache_dir:\
 $workspace/bin:\
 $HOME/.local/bin:\
@@ -96,10 +96,10 @@ $HOME/.local/bin:\
 /sbin:\
 /bin\
 "
-export folder_path
+export PATH
 
-# Set the pkg_config_folder_path variable
-PKG_CONFIG_folder_path="\
+# Set the pkg_config_path variable
+PKG_CONFIG_PATH="\
 $workspace/lib64/pkgconfig:\
 $workspace/lib/x86_64-linux-gnu/pkgconfig:\
 $workspace/lib/pkgconfig:\
@@ -116,7 +116,7 @@ $workspace/share/pkgconfig:\
 /lib/x86_64-linux-gnu/pkgconfig:\
 /lib/pkgconfig\
 "
-export PKG_CONFIG_folder_path
+export PKG_CONFIG_PATH
 
 exit_fn() {
     echo
@@ -200,19 +200,19 @@ build_done() {
 }
 
 download() {
-    folder_path="$packages"
+    path="$packages"
     url="$1"
     archive="${2:-"${1##*/}"}"
 
     if [[ "$archive" =~ tar. ]]; then
-        archive="${archive%.*}"
-        archive="${3:-"${archive%.*}"}"
+        output_dir="${archive%.*}"
+        output_dir="${3:-"${output_dir%.*}"}"
     else
-        archive="${3:-"${archive%.*}"}"
+        output_dir="${3:-"${archive%.*}"}"
     fi
 
-    target_file="$folder_path/$archive"
-    target_dir="$folder_path/$archive"
+    target_file="$path/$archive"
+    target_dir="$path/$output_dir"
 
     if [[ -f "$target_file" ]]; then
         echo "The file \"$archive\" is already downloaded."
@@ -230,13 +230,10 @@ download() {
         echo "Download Completed"
     fi
 
-    # Delete any found files from previous attempts
     [[ -d "$target_dir" ]] && rm -fr "$target_dir"
 
-    # Create the archive output folder
     mkdir -p "$target_dir"
 
-    # Extract the files from the archive into the output folder
     if [[ -n "$3" ]]; then
         if ! tar -xf "$target_file" -C "$target_dir" 2>/dev/null >/dev/null; then
             rm "$target_file"
@@ -252,7 +249,6 @@ download() {
     echo "File extracted: $archive"
     echo
 
-    # Change the working directory to the output folder
     cd "$target_dir" || fail "Unable to change the working directory to \"$target_dir\" Line: $LINENO"
 }
 
@@ -262,7 +258,9 @@ git_caller() {
     recurse_flag=""
 
     [[ "$3" == "recurse" ]] && recurse_flag=1
+
     version=$(git_clone "$git_url" "$repo_name")
+
     version="${version//Cloning completed: /}"
 }
 
@@ -344,7 +342,7 @@ github_repo() {
         if [[ -n "$version" ]]; then
             break
         else
-            # Increment the count if an RC match is found
+            # Increment the count if no non-RC match is found
             ((count++))
         fi
     done
@@ -366,7 +364,7 @@ gitlab_freedesktop_repo() {
             version="${version#v}"
 
             # Check if version contains "RC" and skip it
-            if [[ $version =~ $rc_filter ]]; then
+            if [[ $version =~ $regex_string ]]; then
                 ((count++))
             else
                 break # Exit the loop when a non-RC version is found
@@ -393,7 +391,7 @@ gitlab_gnome_repo() {
     fi
 
     # Deny installing a release candidate
-    while [ $version =~ $rc_filter ]; do
+    while [ $version =~ $regex_string ]; do
         if curl_results=$(curl -sSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url"); then
             version=$(echo "$curl_results" | jq -r ".[$count].name" | sed 's/^v//')
         fi
@@ -597,7 +595,7 @@ if build "pkg-config" "0.29.2"; then
     download "https://pkgconfig.freedesktop.org/releases/pkg-config-0.29.2.tar.gz"
     execute autoconf
     execute ./configure --prefix="$workspace" \
-                        --with-pc-folder_path="$PKG_CONFIG_folder_path" \
+                        --with-pc-path="$PKG_CONFIG_PATH" \
                         CFLAGS="-I$workspace/include" \
                         LDFLAGS="-L$workspace/lib64 -L$workspace/lib"
     execute make "-j$cpu_threads"
@@ -937,7 +935,7 @@ if build "$repo_name" "${version//\$ /}"; then
                          --enable-opencl \
                          --with-dejavu-font-dir=/usr/share/fonts/truetype/dejavu \
                          --with-dmalloc \
-                         --with-fontfolder_path=/usr/share/fonts \
+                         --with-fontpath=/usr/share/fonts \
                          --with-fpx \
                          --with-gslib \
                          --with-gvc \
