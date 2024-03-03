@@ -344,7 +344,7 @@ github_repo() {
         if [[ -n "$version" ]]; then
             break
         else
-            # Increment the count if no non-RC match is found
+            # Increment the count if an RC match is found
             ((count++))
         fi
     done
