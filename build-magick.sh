@@ -778,8 +778,8 @@ if build "$repo_name" "${version//\$ /}"; then
                         -D installmansrc="$workspace/share/man" \
                         -D ldflags="$LDFLAGS" \
                         -D libpth="/usr/lib64 /usr/lib /lib64 /lib" \
-                        -D locincpth="$workspace/include /usr/local/include /usr/include" \
-                        -D loclibpth="$workspace/lib64 $workspace/lib /usr/local/lib64 /usr/local/lib" \
+                        -D locincpth="$workspace/include /usr/local/include" \
+                        -D loclibpth="$workspace/lib /usr/local/lib64 /usr/local/lib" \
                         -D osname="$OS" \
                         -D prefix="$workspace" \
                         -D privlib="$workspace/lib/c2man" \
@@ -919,6 +919,7 @@ if build "$repo_name" "${version//\$ /}"; then
     build_done "$repo_name" "$version"
 fi
 
+# Determine whether of not to install autotrace
 parse_autotrace
 
 echo
