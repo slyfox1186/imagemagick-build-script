@@ -322,11 +322,13 @@ show_version() {
 }
 
 other_repo() {
+    local url=""
     case "$other_flag" in
-        1) version=$(curl -s "https://ftp.gnu.org/gnu/libtool/" | grep -oP '[a-z]+-\K([0-9\.]*[0-9]+)' | sort -rV | head -n1) ;;
-        2) version=$(curl -s "https://pkgconfig.freedesktop.org/releases/" | grep -oP '[a-z]+-\K([0-9\.]*[0-9]+)' | sort -rV | head -n1) ;;
+        1) url="https://ftp.gnu.org/gnu/libtool/" ;;
+        2) url="https://pkgconfig.freedesktop.org/releases/" ;;
         *) fail "You must pass the variable \"other_flag\" to this function for it to work correctly. Line: $LINENO." ;;
     esac
+    version=$(curl -s "$url" | grep -oP '[a-z]+-\K([0-9\.]*[0-9]+)' | sort -rV | head -n1)
 }
 
 github_repo() {
