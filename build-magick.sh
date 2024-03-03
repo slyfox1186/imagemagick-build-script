@@ -322,7 +322,6 @@ show_version() {
 }
 
 github_repo() {
-    # Initial setup
     local count=1
     local git_repo="$1"
     local git_url="$2"
@@ -391,7 +390,7 @@ gitlab_gnome_repo() {
         version="${version#v}"
     fi
 
-    # DENY INSTALLING A RELEASE CANDIDATE
+    # Deny installing a release candidate
     while [ $version =~ $regex_string ]; do
         if curl_results=$(curl -sSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url"); then
             version=$(echo "$curl_results" | jq -r ".[$count].name" | sed 's/^v//')
@@ -420,7 +419,6 @@ find_git_repo() {
     "$set_repo" "$url" "$set_action" 2>/dev/null
 }
 
-# PRINT THE OPTIONS AVAILABLE WHEN MANUALLY RUNNING THE SCRIPT
 apt_pkgs() {
     local missing_packages pkg pkgs available_packages unavailable_packages
 
@@ -495,19 +493,16 @@ set_autotrace() {
     fi
 }
 
-#
-# INSTALL APT LIBRARIES
-#
-
+# Install APT packages
     echo
     echo "Installing required APT packages"
     echo "=========================================="
 
 debian_version() {
     case "$VER" in
-        11)     apt_pkgs "libvmmalloc1 libvmmalloc-dev" ;;
-        12)     apt_pkgs ;;
-        *)      fail "Could not detect the Debian version. Line: $LINENO" ;;
+        11) apt_pkgs "libvmmalloc1 libvmmalloc-dev" ;;
+        12) apt_pkgs ;;
+        *)  fail "Could not detect the Debian version. Line: $LINENO" ;;
     esac
 }
 
@@ -529,10 +524,10 @@ get_os_version
 
 # DISCOVER WHAT VERSION OF LINUX WE ARE RUNNING (DEBIAN OR UBUNTU)
 case "$OS" in
-    Arch)       return ;;
-    Debian)     debian_version ;;
-    Ubuntu)     apt_pkgs ;;
-    *)          fail "Could not detect the OS architecture. Line: $LINENO" ;;
+    Arch)   return ;;
+    Debian) debian_version ;;
+    Ubuntu) apt_pkgs ;;
+    *)      fail "Could not detect the OS architecture. Line: $LINENO" ;;
 esac
 
 # INSTALL OFFICIAL IMAGEMAGICK LIBS
