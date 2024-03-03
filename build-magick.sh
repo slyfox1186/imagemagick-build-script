@@ -25,7 +25,7 @@
 ##  Removed:
 ##          - unnecessary commands in imagemagick's configure script
 
-if [ "$EUID" -ne 0 ]; then
+if [[ "$EUID" -ne 0 ]]; then
     echo "This script must be run with root/sudo"
     exit 1
 fi
@@ -35,14 +35,14 @@ script_ver=1.1
 cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
-regex_string='(rc|RC|Rc|rC|alpha|beta|master|pre)+[0-9]*$'
+regex_string='(rc|RC|Rc|rC|alpha|beta|master|pre)+[[0-9]]*$'
 debug=OFF # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
 
 # Pre-defined color variables
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-NC='\033[0m' # No Color
+RED='\033[[0;31m'
+GREEN='\033[[0;32m'
+YELLOW='\033[[0;33m'
+NC='\033[[0m' # No Color
 
 # ANNOUNCE THE BUILD HAS BEGUN
 box_out_banner_header() {
@@ -71,21 +71,31 @@ CXXFLAGS="-g -O3 -march=native"
 export CC CFLAGS CXX CXXFLAGS
 
 # SET THE AVAILABLE CPU COUNT FOR PARALLEL PROCESSING (SPEEDS UP THE BUILD PROCESS)
-if [ -f /proc/cpuinfo ]; then
+if [[ -f /proc/cpuinfo ]]; then
     cpu_threads=$(grep --count ^processor /proc/cpuinfo)
 else
     cpu_threads=$(nproc --all)
 fi
 
 # SET THE PATH
-if [ -d /usr/lib/ccache/bin ]; then
+if [[ -d /usr/lib/ccache/bin ]]; then
     ccache_dir=/usr/lib/ccache/bin
 else
     ccache_dir=/usr/lib/ccache
 fi
 
 # Set the path variable
-PATH="$ccache_dir:$workspace/bin:$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PATH="\
+$ccache_dir:\
+$workspace/bin:\
+$HOME/.local/bin:\
+/usr/local/sbin:\
+/usr/local/bin:\
+/usr/sbin:\
+/usr/bin:\
+/sbin:\
+/bin\
+"
 export PATH
 
 # Set the pkg_config_path variable
@@ -110,27 +120,27 @@ export PKG_CONFIG_PATH
 
 exit_fn() {
     echo
-    echo -e "${GREEN}[INFO]${NC} Make sure to ${YELLOW}star${NC} this repository to show your support!"
-    echo -e "${GREEN}[INFO]${NC} https://github.com/slyfox1186/script-repo"
+    echo -e "${GREEN}[[INFO]]${NC} Make sure to ${YELLOW}star${NC} this repository to show your support!"
+    echo -e "${GREEN}[[INFO]]${NC} https://github.com/slyfox1186/script-repo"
     echo
     exit 0
 }
 
 fail() {
     echo
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${RED}[[ERROR]]${NC} $1"
     echo
-    echo -e "${GREEN}[INFO]${NC} For help or to report a bug create an issue at: https://github.com/slyfox1186/script-repo/issues"
+    echo -e "${GREEN}[[INFO]]${NC} For help or to report a bug create an issue at: https://github.com/slyfox1186/script-repo/issues"
     echo
     exit 1
 }
 
 log() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+    echo -e "${GREEN}[[INFO]]${NC} $1"
 }
 
 warn() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo -e "${YELLOW}[[WARNING]]${NC} $1"
 }
 
 cleanup() {
@@ -141,8 +151,8 @@ cleanup() {
     echo "        Do you want to clean up the build files?        "
     echo "========================================================"
     echo
-    echo "[1] Yes"
-    echo "[2] No"
+    echo "[[1]] Yes"
+    echo "[[2]] No"
     echo
 
     read -p "Your choices are (1 or 2): " choice
@@ -158,7 +168,7 @@ cleanup() {
 execute() {
     echo "$ $*"
 
-    if [ "$debug" = "ON" ]; then
+    if [[ "$debug" = "ON" ]]; then
         if ! output=$("$@"); then
             notify-send -t 5000 "Failed to execute: $*" 2>/dev/null
             fail "Failed to execute: $*"
@@ -176,7 +186,7 @@ build() {
     echo -e "${GREEN}Building ${YELLOW}$1${NC} - ${GREEN}version ${YELLOW}$2${NC}"
     echo "=========================================="
 
-    if [ -f "$packages/$1.done" ]; then
+    if [[ -f "$packages/$1.done" ]]; then
         if grep -Fx "$2" "$packages/$1.done" >/dev/null; then
             echo "$1 version $2 already built. Remove $packages/$1.done lockfile to rebuild it."
             return 1
@@ -204,7 +214,7 @@ download() {
     target_file="$path/$archive"
     target_dir="$path/$output_dir"
 
-    if [ -f "$target_file" ]; then
+    if [[ -f "$target_file" ]]; then
         echo "The file \"$archive\" is already downloaded."
     else
         echo "Downloading \"$url\" saving as \"$archive\""
@@ -220,13 +230,11 @@ download() {
         echo "Download Completed"
     fi
 
-    if [ -d "$target_dir" ]; then
-        rm -fr "$target_dir"
-    fi
+    [[ -d "$target_dir" ]] && rm -fr "$target_dir"
 
     mkdir -p "$target_dir"
 
-    if [ -n "$3" ]; then
+    if [[ -n "$3" ]]; then
         if ! tar -xf "$target_file" -C "$target_dir" 2>/dev/null >/dev/null; then
             rm "$target_file"
             fail "The script failed to extract \"$archive\" so it was deleted. Please re-run the script. Line: $LINENO"
@@ -265,7 +273,7 @@ git_clone() {
 
     # Try to get the latest tag
     version=$(git ls-remote --tags "$repo_url" |
-              awk -F'/' '/\/v?[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9]+)?(\^\{\})?$/ {
+              awk -F'/' '/\/v?[[0-9]]+\.[[0-9]]+(\.[[0-9]]+)?(-[[0-9]]+)?(\^\{\})?$/ {
                   tag = $3;
                   sub(/^v/, "", tag);
                   print tag
@@ -296,7 +304,7 @@ git_clone() {
         # Clone the repository
         if ! git clone --depth 1 $recurse -q "$repo_url" "$target_directory"; then
             echo
-            echo -e "${RED}[ERROR]${NC} Failed to clone \"$target_directory\". Second attempt in 10 seconds..."
+            echo -e "${RED}[[ERROR]]${NC} Failed to clone \"$target_directory\". Second attempt in 10 seconds..."
             echo
             sleep 10
             if ! git clone --depth 1 $recurse -q "$repo_url" "$target_directory"; then
@@ -327,18 +335,18 @@ github_repo() {
     version=""
 
     # Fetch GitHub tags page
-    while [ $count -le 10 ]; do
+    while [[ $count -le 10 ]]; do
         # Apply case-insensitive matching for RC versions to exclude them
         version=$(curl -fsSL "https://github.com/$git_repo/$git_url" |
-                  grep -oP 'href="[^"]*/tags/[^"]*\.tar\.gz"' |
-                  grep -oP '\/tags\/\K(v?[\w.-]+?)(?=\.tar\.gz)' |
-                  grep -viP '(rc)[0-9]*' |
+                  grep -oP 'href="[[^"]]*/tags/[[^"]]*\.tar\.gz"' |
+                  grep -oP '\/tags\/\K(v?[[\w.-]]+?)(?=\.tar\.gz)' |
+                  grep -viP '(rc)[[0-9]]*' |
                   head -n1 |
                   sed 's/^v//'
              )
 
         # Check if a non-RC version was found
-        if [ -n "$version" ]; then
+        if [[ -n "$version" ]]; then
             break
         else
             # Increment the count if no non-RC match is found
@@ -347,7 +355,7 @@ github_repo() {
     done
 
     # Handle case where no non-RC version is found after max attempts
-    if [ -z "$version" ]; then
+    if [[ -z "$version" ]]; then
         fail "No matching version found without RC/rc suffix."
     fi
 }
@@ -361,7 +369,7 @@ gitlab_freedesktop_repo() {
     while true
     do
         if curl_results=$(curl -m 10 -sSL "https://gitlab.freedesktop.org/api/v4/projects/$repo/repository/tags"); then
-            version=$(echo "$curl_results" | jq -r ".[$count].name")
+            version=$(echo "$curl_results" | jq -r ".[[$count]].name")
             version="${version#v}"
 
             # Check if version contains "RC" and skip it
@@ -387,14 +395,14 @@ gitlab_gnome_repo() {
     [[ -z "$repo" ]] && fail "Repository name is required."
 
     if curl_results=$(curl -sSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url"); then
-        version=$(echo "$curl_results" | jq -r '.[0].name')
+        version=$(echo "$curl_results" | jq -r '.[[0]].name')
         version="${version#v}"
     fi
 
     # DENY INSTALLING A RELEASE CANDIDATE
     while [[ $version =~ $regex_string ]]; do
         if curl_results=$(curl -sSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url"); then
-            version=$(echo "$curl_results" | jq -r ".[$count].name")
+            version=$(echo "$curl_results" | jq -r ".[[$count]].name")
             version="${version#v}"
         fi
         ((count++))
@@ -443,7 +451,7 @@ apt_pkgs() {
     unavailable_packages=()
 
     # Loop through the array to find missing packages
-    for pkg in "${pkgs[@]}"
+    for pkg in "${pkgs[[@]]}"
     do
         if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed"; then
             missing_packages+=("$pkg")
@@ -451,7 +459,7 @@ apt_pkgs() {
     done
 
     # Check availability of missing packages and categorize them
-    for pkg in "${missing_packages[@]}"
+    for pkg in "${missing_packages[[@]]}"
     do
         if apt-cache show "$pkg" >/dev/null 2>&1; then
             available_packages+=("$pkg")
@@ -461,14 +469,14 @@ apt_pkgs() {
     done
 
     # Print unavailable packages
-    if [ "${#unavailable_packages[@]}" -gt 0 ]; then
-        log "Unavailable packages: ${unavailable_packages[*]}"
+    if [[ "${#unavailable_packages[[@]]}" -gt 0 ]]; then
+        log "Unavailable packages: ${unavailable_packages[[*]]}"
     fi
 
     # Install available missing packages
-    if [ "${#available_packages[@]}" -gt 0 ]; then
-        log "Installing available missing packages: ${available_packages[*]}"
-        apt install "${available_packages[@]}"
+    if [[ "${#available_packages[[@]]}" -gt 0 ]]; then
+        log "Installing available missing packages: ${available_packages[[*]]}"
+        apt install "${available_packages[[@]]}"
     else
         log "No missing packages to install or all missing packages are unavailable."
     fi
@@ -519,7 +527,7 @@ get_os_version() {
     if command -v lsb_release &>/dev/null; then
         OS=$(lsb_release -si)
         VER=$(lsb_release -sr)
-    elif [ -f /etc/os-release ]; then
+    elif [[ -f /etc/os-release ]]; then
         . /etc/os-release
         OS=$NAME
         VER=$VERSION_ID
@@ -542,7 +550,7 @@ esac
 # INSTALL OFFICIAL IMAGEMAGICK LIBS
 find_git_repo "imagemagick/imagemagick" "1" "T"
 if build "magick-libs" "$version"; then
-    if [ ! -d "$packages/deb-files" ]; then
+    if [[ ! -d "$packages/deb-files" ]]; then
         mkdir -p "$packages/deb-files"
     fi
     cd "$packages/deb-files" || exit 1
@@ -555,12 +563,12 @@ if build "magick-libs" "$version"; then
 fi
 
 # INSTALL COMPOSER TO COMPILE GRAPHVIZ
-if [ ! -f "/usr/bin/composer" ]; then
+if [[ ! -f "/usr/bin/composer" ]]; then
     EXPECTED_CHECKSUM=$(php -r 'copy("https://composer.github.io/installer.sig", "php://stdout");')
     php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
     ACTUAL_CHECKSUM=$(php -r "echo hash_file('sha384', 'composer-setup.php');")
 
-    if [ "$EXPECTED_CHECKSUM" != "$ACTUAL_CHECKSUM" ]; then
+    if [[ "$EXPECTED_CHECKSUM" != "$ACTUAL_CHECKSUM" ]]; then
         >&2 echo "ERROR: Invalid installer checksum"
         rm "composer-setup.php"
         return 1
@@ -715,7 +723,7 @@ if build "freetype" "$version1"; then
                               --buildtype=release \
                               --default-library=static \
                               --strip \
-                              "${extracmds[@]}"
+                              "${extracmds[[@]]}"
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
     build_done "freetype" "$version1"
@@ -791,7 +799,7 @@ if build "fribidi" "$version"; then
                               --buildtype=release \
                               --default-library=static \
                               --strip \
-                              "${extracmds[@]}"
+                              "${extracmds[[@]]}"
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
     build_done "fribidi" "$version"
@@ -806,7 +814,7 @@ if build "harfbuzz" "$version"; then
                               --buildtype=release \
                               --default-library=static \
                               --strip \
-                              "${extracmds[@]}"
+                              "${extracmds[[@]]}"
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
     build_done "harfbuzz" "$version"
