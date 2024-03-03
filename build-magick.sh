@@ -164,6 +164,7 @@ cleanup() {
            ;;
     esac
 }
+
 execute() {
     echo "$ $*"
 
@@ -217,12 +218,12 @@ download() {
         echo "The file \"$archive\" is already downloaded."
     else
         echo "Downloading \"$url\" saving as \"$archive\""
-        if ! curl -Lso "$target_file" "$url"; then
+        if ! curl -LsSo "$target_file" "$url"; then
             echo
             warn "The script failed to download \"$archive\" and will try again in 10 seconds..."
             echo
             sleep 10
-            if ! curl -Lso "$target_file" "$url"; then
+            if ! curl -Lsso "$target_file" "$url"; then
                 fail "The script failed to download \"$archive\" twice and will now exit. Line: $LINENO"
             fi
         fi
@@ -472,7 +473,7 @@ apt_pkgs() {
 
 download_autotrace() {
     if build "autotrace" "0.40.0-20200219"; then
-        curl -Lso "$packages/deb-files/autotrace-0.40.0-20200219.deb" "https://github.com/autotrace/autotrace/releases/download/travis-20200219.65/autotrace_0.40.0-20200219_all.deb"
+        curl -LsSo "$packages/deb-files/autotrace-0.40.0-20200219.deb" "https://github.com/autotrace/autotrace/releases/download/travis-20200219.65/autotrace_0.40.0-20200219_all.deb"
         cd "$packages/deb-files" || exit 1
         execute apt -y install ./autotrace-0.40.0-20200219.deb
         build_done "autotrace" "0.40.0-20200219"
@@ -541,7 +542,7 @@ if build "magick-libs" "$version"; then
         mkdir -p "$packages/deb-files"
     fi
     cd "$packages/deb-files" || exit 1
-    if ! curl -Lso "magick-libs-$version.rpm" "https://imagemagick.org/archive/linux/CentOS/x86_64/ImageMagick-libs-$version.x86_64.rpm"; then
+    if ! curl -LsSo "magick-libs-$version.rpm" "https://imagemagick.org/archive/linux/CentOS/x86_64/ImageMagick-libs-$version.x86_64.rpm"; then
         fail "Failed to download the magick-libs file. Line: $LINENO"
     fi
     execute alien -d ./*.rpm || fail "Error: alien -d ./*.rpm Line: $LINENO"
