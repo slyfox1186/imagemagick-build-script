@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC1091,SC2034,SC2046,SC2066,SC2068,SC2086,SC2119,SC2162,SC2181
+# shellcheck disable=SC1091,SC2000,SC2046,SC2066,SC2068,SC2086,SC2119,SC2162,SC2181,SC2206
 
 ##  Script Version: 1.1
 ##  Updated: 02.20.24
@@ -31,7 +31,6 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # SET GLOBAL VARIABLES
-progname="${0}"
 script_ver=1.1
 cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
@@ -69,9 +68,6 @@ CC=gcc
 CXX=g++
 CFLAGS="-g -O3 -march=native"
 CXXFLAGS="-g -O3 -march=native"
-EXTRALIBS="-ldl -lm -lpthread -lz"
-LDFLAGS="-L$workspace/lib"
-CPPFLAGS="-I$workspace/include"
 export CC CFLAGS CXX CXXFLAGS
 
 # SET THE AVAILABLE CPU COUNT FOR PARALLEL PROCESSING (SPEEDS UP THE BUILD PROCESS)
@@ -194,31 +190,31 @@ build_done() {
 }
 
 download() {
-    dl_path="$packages"
-    dl_url="$1"
-    dl_file="${2:-"${1##*/}"}"
+    path="$packages"
+    url="$1"
+    archive="${2:-"${1##*/}"}"
 
-    if [[ "$dl_file" =~ tar. ]]; then
-        output_dir="${dl_file%.*}"
+    if [[ "$archive" =~ tar. ]]; then
+        output_dir="${archive%.*}"
         output_dir="${3:-"${output_dir%.*}"}"
     else
-        output_dir="${3:-"${dl_file%.*}"}"
+        output_dir="${3:-"${archive%.*}"}"
     fi
 
-    target_file="$dl_path/$dl_file"
-    target_dir="$dl_path/$output_dir"
+    target_file="$path/$archive"
+    target_dir="$path/$output_dir"
 
     if [ -f "$target_file" ]; then
-        echo "The file \"$dl_file\" is already downloaded."
+        echo "The file \"$archive\" is already downloaded."
     else
-        echo "Downloading \"$dl_url\" saving as \"$dl_file\""
-        if ! curl -Lso "$target_file" "$dl_url"; then
+        echo "Downloading \"$url\" saving as \"$archive\""
+        if ! curl -Lso "$target_file" "$url"; then
             echo
-            warn "The script failed to download \"$dl_file\" and will try again in 10 seconds..."
+            warn "The script failed to download \"$archive\" and will try again in 10 seconds..."
             echo
             sleep 10
-            if ! curl -Lso "$target_file" "$dl_url"; then
-                fail "The script failed to download \"$dl_file\" twice and will now exit. Line: $LINENO"
+            if ! curl -Lso "$target_file" "$url"; then
+                fail "The script failed to download \"$archive\" twice and will now exit. Line: $LINENO"
             fi
         fi
         echo "Download Completed"
@@ -233,16 +229,16 @@ download() {
     if [ -n "$3" ]; then
         if ! tar -xf "$target_file" -C "$target_dir" 2>/dev/null >/dev/null; then
             rm "$target_file"
-            fail "The script failed to extract \"$dl_file\" so it was deleted. Please re-run the script. Line: $LINENO"
+            fail "The script failed to extract \"$archive\" so it was deleted. Please re-run the script. Line: $LINENO"
         fi
     else
         if ! tar -xf "$target_file" -C "$target_dir" --strip-components 1 2>/dev/null >/dev/null; then
             rm "$target_file"
-            fail "The script failed to extract \"$dl_file\" so it was deleted. Please re-run the script. Line: $LINENO"
+            fail "The script failed to extract \"$archive\" so it was deleted. Please re-run the script. Line: $LINENO"
         fi
     fi
 
-    echo "File extracted: $dl_file"
+    echo "File extracted: $archive"
     echo
 
     cd "$target_dir" || fail "Unable to change the working directory to \"$target_dir\" Line: $LINENO"
@@ -264,7 +260,6 @@ git_clone() {
     local repo_url="$1"
     local repo_name="${2:-"${1##*/}"}"
     local repo_name="${repo_name//\./-}"
-    local repo_flag="$3"
     local target_directory="$packages/$repo_name"
     local version
 
