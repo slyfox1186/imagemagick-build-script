@@ -482,7 +482,7 @@ apt_pkgs() {
     fi
 }
 
-install_autotrace() {
+set_autotrace() {
     if build "autotrace" "0.40.0-20200219"; then
         curl -Lso "$packages/deb-files/autotrace-0.40.0-20200219.deb" "https://github.com/autotrace/autotrace/releases/download/travis-20200219.65/autotrace_0.40.0-20200219_all.deb"
         cd "$packages/deb-files" || exit 1
@@ -495,15 +495,15 @@ parse_autotrace() {
     # enable/disable autotrace
     case "$OS" in
         Ubuntu)
-                    install_autotrace
+                    set_autotrace
                     autotrace_flag=true
                     ;;
     esac
 
     if [[ "$autotrace_flag" == "true" ]]; then
-        set_autotrace="--with-autotrace"
+        toggle_autotrace="--with-autotrace"
     else
-        set_autotrace="--without-autotrace"
+        toggle_autotrace="--without-autotrace"
     fi
 }
 
@@ -968,7 +968,7 @@ if build "$repo_name" "${version//\$ /}"; then
                          --with-tcmalloc \
                          --with-urw-base35-font-dir=/usr/share/fonts/type1/urw-base35 \
                          --with-utilities \
-                         "$set_autotrace" \
+                         "$toggle_autotrace" \
                          CFLAGS="$CFLAGS -DCL_TARGET_OPENCL_VERSION=300"
     execute make "-j$cpu_threads"
     execute make install
