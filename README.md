@@ -10,11 +10,6 @@ cd imagemagick-build-script
 sudo bash build-magick.sh
 ```
 
-#### Quick Install
-```bash
-bash <(curl -sSL https://imagick.optimizethis.net)
-```
-
 ```
  -------------------------------
 |                               |
