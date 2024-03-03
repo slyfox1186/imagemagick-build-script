@@ -812,23 +812,20 @@ if build "fribidi" "$version"; then
     build_done "fribidi" "$version"
 fi
 
-# UBUNTU BIONIC FAILS TO BUILD XML2
-if [[ "$VER" != "18.04" ]]; then
-    find_git_repo "harfbuzz/harfbuzz" "1" "T"
-    if build "harfbuzz" "$version"; then
-        download "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/$version.tar.gz" "harfbuzz-$version.tar.gz"
-        extracmds=("-D"{benchmark,cairo,docs,glib,gobject,icu,introspection,tests}"=disabled")
-        execute ./autogen.sh
+
+find_git_repo "harfbuzz/harfbuzz" "1" "T"
+if build "harfbuzz" "$version"; then
+    download "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/$version.tar.gz" "harfbuzz-$version.tar.gz"
+    extracmds=("-D"{benchmark,cairo,docs,glib,gobject,icu,introspection,tests}"=disabled")
+    execute ./autogen.sh
     execute meson setup build --prefix="$workspace" \
                               --buildtype=release \
                               --default-library=static \
                               --strip \
                               "${extracmds[@]}"
-        execute ninja "-j$cpu_threads" -C build
-        execute ninja -C build install
-        build_done "harfbuzz" "$version"
-    fi
-fi
+    execute ninja "-j$cpu_threads" -C build
+    execute ninja -C build install
+    build_done "harfbuzz" "$version"
 
 find_git_repo "host-oman/libraqm" "1" "T"
 if build "raqm" "$version"; then
