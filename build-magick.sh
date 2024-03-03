@@ -321,6 +321,14 @@ show_version() {
     magick -version 2>/dev/null || fail "Failure to execute the command: magick -version. Line: $LINENO"
 }
 
+other_repo() {
+    case "$other_flag" in
+        1) version=$(curl -s "https://ftp.gnu.org/gnu/libtool/" | grep -oP '[a-z]+-\K([0-9\.]*[0-9]+)' | sort -rV | head -n1) ;;
+        2) version=$(curl -s "https://pkgconfig.freedesktop.org/releases/" | grep -oP '[a-z]+-\K([0-9\.]*[0-9]+)' | sort -rV | head -n1) ;;
+        *) fail "You must pass the variable \"other_flag\" to this function for it to work correctly. Line: $LINENO." ;;
+    esac
+}
+
 github_repo() {
     local count=1
     local git_repo="$1"
@@ -583,16 +591,18 @@ if build "autoconf" "latest"; then
     build_done "autoconf" "latest"
 fi
 
-if build "libtool" "2.4.7"; then
-    download "https://ftp.gnu.org/gnu/libtool/libtool-2.4.7.tar.xz"
+other_flag=1; other_repo
+if build "libtool" "$version"; then
+    download "https://ftp.gnu.org/gnu/libtool/libtool-$version.tar.xz"
     execute ./configure --prefix="$workspace" --with-pic M4="$workspace/bin/m4"
     execute make "-j$cpu_threads"
     execute make install
-    build_done "libtool" "2.4.7"
+    build_done "libtool" "$version"
 fi
 
-if build "pkg-config" "0.29.2"; then
-    download "https://pkgconfig.freedesktop.org/releases/pkg-config-0.29.2.tar.gz"
+other_flag=2; other_repo
+if build "pkg-config" "$version"; then
+    download "https://pkgconfig.freedesktop.org/releases/pkg-config-$version.tar.gz"
     execute autoconf
     execute ./configure --prefix="$workspace" \
                         --with-pc-path="$PKG_CONFIG_PATH" \
@@ -600,7 +610,7 @@ if build "pkg-config" "0.29.2"; then
                         LDFLAGS="-L$workspace/lib64 -L$workspace/lib"
     execute make "-j$cpu_threads"
     execute make install
-    build_done "pkg-config" "0.29.2"
+    build_done "pkg-config" "$version"
 fi
 
 find_git_repo "madler/zlib" "1" "T"
