@@ -321,14 +321,10 @@ show_version() {
     magick -version 2>/dev/null || fail "Failure to execute the command: magick -version. Line: $LINENO"
 }
 
-other_repo() {
-    local url=""
-    case "$other_flag" in
-        1) url="https://ftp.gnu.org/gnu/libtool/" ;;
-        2) url="https://pkgconfig.freedesktop.org/releases/" ;;
-        *) fail "You must pass the variable \"other_flag\" to this function for it to work correctly. Line: $LINENO." ;;
-    esac
-    version=$(curl -s "$url" | grep -oP '[a-z]+-\K([0-9\.]*[0-9]+)' | sort -rV | head -n1)
+# Parse each git repoitory to find the latest release version number for each program
+gnu_repo() {
+    local url="$1"
+    version=$(curl -sS "$url" | grep -oP '[a-z]+-\K(([0-9\.]*[0-9]+)){2,}' | sort -rV | head -n1)
 }
 
 github_repo() {
@@ -593,7 +589,7 @@ if build "autoconf" "latest"; then
     build_done "autoconf" "latest"
 fi
 
-other_flag=1; other_repo
+gnu_repo "https://ftp.gnu.org/gnu/libtool/"
 if build "libtool" "$version"; then
     download "https://ftp.gnu.org/gnu/libtool/libtool-$version.tar.xz"
     execute ./configure --prefix="$workspace" --with-pic M4="$workspace/bin/m4"
@@ -602,7 +598,7 @@ if build "libtool" "$version"; then
     build_done "libtool" "$version"
 fi
 
-other_flag=2; other_repo
+gnu_repo "https://pkgconfig.freedesktop.org/releases/"
 if build "pkg-config" "$version"; then
     download "https://pkgconfig.freedesktop.org/releases/pkg-config-$version.tar.gz"
     execute autoconf
