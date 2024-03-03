@@ -128,8 +128,7 @@ exit_fn() {
 
 fail() {
     echo
-    echo -e "${RED}[ERROR]${NC} $1"
-    echo
+    echo -e "${RED}[ERROR]${NC} $1\\n"
     echo -e "${GREEN}[INFO]${NC} For help or to report a bug create an issue at: https://github.com/slyfox1186/script-repo/issues"
     echo
     exit 1
@@ -289,17 +288,13 @@ git_clone() {
                   grep "HEAD" |
                   awk '{print substr($1,1,7)}'
              )
-        if [[ -z "$version" ]]; then
-            version="unknown"
-        fi
+        [[ -z "$version" ]] && version="unknown"
     fi
 
     [[ -f "$packages/$repo_name.done" ]] && store_prior_version=$(cat "$packages/$repo_name.done")
 
     if [[ ! "$version" == "$store_prior_version" ]]; then
-        if [[ "$recurse_flag" -eq 1 ]]; then
-            recurse="--recursive"
-        fi
+        [[ "$recurse_flag" -eq 1 ]] && recurse="--recursive"
         [[ -d "$target_directory" ]] && rm -fr "$target_directory"
         # Clone the repository
         if ! git clone --depth 1 $recurse -q "$repo_url" "$target_directory"; then
@@ -322,9 +317,7 @@ show_version() {
     echo
     log "ImageMagick's new version is:"
     echo
-    if ! magick -version 2>/dev/null; then
-        fail "Failure to execute the command: magick -version. Line: $LINENO"
-    fi
+    magick -version 2>/dev/null || fail "Failure to execute the command: magick -version. Line: $LINENO"
 }
 
 github_repo() {
@@ -355,9 +348,7 @@ github_repo() {
     done
 
     # Handle case where no non-RC version is found after max attempts
-    if [[ -z "$version" ]]; then
-        fail "No matching version found without RC/rc suffix."
-    fi
+    [[ -z "$version" ]] && fail "No matching version found without RC/rc suffix."
 }
 
 gitlab_freedesktop_repo() {
@@ -376,7 +367,7 @@ gitlab_freedesktop_repo() {
             if [[ $version =~ $regex_string ]]; then
                 ((count++))
             else
-                break  # Exit the loop when a non-RC version is found
+                break # Exit the loop when a non-RC version is found
             fi
         else
             fail "Failed to fetch data from GitLab API."
@@ -402,8 +393,7 @@ gitlab_gnome_repo() {
     # DENY INSTALLING A RELEASE CANDIDATE
     while [ $version =~ $regex_string ]; do
         if curl_results=$(curl -sSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url"); then
-            version=$(echo "$curl_results" | jq -r ".[$count].name")
-            version="${version#v}"
+            version=$(echo "$curl_results" | jq -r ".[$count].name" | sed 's/^v//')
         fi
         ((count++))
     done
@@ -435,14 +425,14 @@ apt_pkgs() {
 
     pkgs=(
         $1 alien autoconf autoconf-archive binutils bison build-essential
-        cmake curl dbus-x11 flex fontforge git gperf imagemagick jq libc6
+        cmake curl dbus-x11 flex fontforge git gperf imagemagick jq intltool libc6
         libcamd2 libcpu-features-dev libdmalloc-dev libdmalloc5 libfont-ttf-perl
         libfontconfig-dev libgc-dev libgc1 libgegl-0.4-0 libgegl-common libgimp2.0
         libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgs-dev libheif-dev libhwy-dev
         libjemalloc-dev libjemalloc2 libjxl-dev libnotify-bin libpstoedit-dev
         librust-jpeg-decoder-dev librust-malloc-buf-dev libsharp-dev libticonv-dev
         libtool libtool-bin libyuv-dev libyuv-utils libyuv0 m4 meson nasm ninja-build
-        python3-dev yasm zlib1g-dev php-dev
+        pkg-config python3-dev yasm zlib1g-dev php-dev
 )
 
     # Initialize arrays for missing, available, and unavailable packages
@@ -469,9 +459,7 @@ apt_pkgs() {
     done
 
     # Print unavailable packages
-    if [[ "${#unavailable_packages[@]}" -gt 0 ]]; then
-        log "Unavailable packages: ${unavailable_packages[@]}"
-    fi
+    [[ "${#unavailable_packages[@]}" -gt 0 ]] && log "Unavailable packages: ${unavailable_packages[@]}"
 
     # Install available missing packages
     if [[ "${#available_packages[@]}" -gt 0 ]]; then
@@ -482,7 +470,7 @@ apt_pkgs() {
     fi
 }
 
-set_autotrace() {
+download_autotrace() {
     if build "autotrace" "0.40.0-20200219"; then
         curl -Lso "$packages/deb-files/autotrace-0.40.0-20200219.deb" "https://github.com/autotrace/autotrace/releases/download/travis-20200219.65/autotrace_0.40.0-20200219_all.deb"
         cd "$packages/deb-files" || exit 1
@@ -491,19 +479,18 @@ set_autotrace() {
     fi
 }
 
-parse_autotrace() {
+set_autotrace() {
     # enable/disable autotrace
     case "$OS" in
-        Ubuntu)
-                    set_autotrace
-                    autotrace_flag=true
-                    ;;
+        Ubuntu) download_autotrace
+                local flag=true
+                ;;
     esac
 
-    if [[ "$autotrace_flag" == "true" ]]; then
-        toggle_autotrace="--with-autotrace"
+    if [[ "$flag" == "true" ]]; then
+        autotrace_switch="--with-autotrace"
     else
-        toggle_autotrace="--without-autotrace"
+        autotrace_switch="--without-autotrace"
     fi
 }
 
@@ -920,7 +907,7 @@ if build "$repo_name" "${version//\$ /}"; then
 fi
 
 # Determine whether of not to install autotrace
-parse_autotrace
+set_autotrace
 
 echo
 box_out_banner_magick() {
@@ -968,7 +955,7 @@ if build "$repo_name" "${version//\$ /}"; then
                          --with-tcmalloc \
                          --with-urw-base35-font-dir=/usr/share/fonts/type1/urw-base35 \
                          --with-utilities \
-                         "$toggle_autotrace" \
+                         "$autotrace_switch" \
                          CFLAGS="$CFLAGS -DCL_TARGET_OPENCL_VERSION=300"
     execute make "-j$cpu_threads"
     execute make install
