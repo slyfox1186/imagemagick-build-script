@@ -66,8 +66,8 @@ mkdir -p "$packages" "$workspace"
 # SET THE COMPILERS TO USE AND THE COMPILER OPTIMIZATION FLAGS
 CC=gcc
 CXX=g++
-CFLAGS="-g -O3 -march=native"
-CXXFLAGS="-g -O3 -march=native"
+CFLAGS="-g -O3 -pipe -march=native"
+CXXFLAGS="-g -O3 -pipe -march=native"
 export CC CFLAGS CXX CXXFLAGS
 
 # SET THE AVAILABLE CPU COUNT FOR PARALLEL PROCESSING (SPEEDS UP THE BUILD PROCESS)
