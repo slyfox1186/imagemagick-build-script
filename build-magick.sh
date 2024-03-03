@@ -659,11 +659,9 @@ if build "ghostscript" "$version"; then
 fi
 
 get_os_version # Ubuntu throws an error if you don't install png12, however Debian works without issue.
-if [[ "$OS" == "Ubuntu" ]]; then
-    version="1.2.59"
-else
-    find_git_repo "pnggroup/libpng" "1" "T"
-fi
+
+find_git_repo "pnggroup/libpng" "1" "T"
+[[ "$OS" == "Ubuntu" ]] && version="1.2.59"
 if build "libpng" "$version"; then
     download "https://github.com/pnggroup/libpng/archive/refs/tags/v$version.tar.gz" "libpng-$version.tar.gz"
     execute autoreconf -fi
