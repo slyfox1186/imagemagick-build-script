@@ -10,6 +10,7 @@ cd imagemagick-build-script
 sudo bash build-magick.sh
 ```
 
+#### Output
 ```
  -------------------------------
 |                               |
