@@ -318,7 +318,7 @@ git_clone() {
     return 0
 }
 
-show_ver_fn() {
+show_version() {
     echo
     log "ImageMagick's new version is:"
     echo
@@ -430,7 +430,7 @@ find_git_repo() {
 }
 
 # PRINT THE OPTIONS AVAILABLE WHEN MANUALLY RUNNING THE SCRIPT
-pkgs_fn() {
+apt_pkgs() {
     local missing_packages pkg pkgs available_packages unavailable_packages
 
     pkgs=(
@@ -482,12 +482,28 @@ pkgs_fn() {
     fi
 }
 
-install_autotrace_fn() {
+install_autotrace() {
     if build "autotrace" "0.40.0-20200219"; then
         curl -Lso "$packages/deb-files/autotrace-0.40.0-20200219.deb" "https://github.com/autotrace/autotrace/releases/download/travis-20200219.65/autotrace_0.40.0-20200219_all.deb"
         cd "$packages/deb-files" || exit 1
         execute apt -y install ./autotrace-0.40.0-20200219.deb
         build_done "autotrace" "0.40.0-20200219"
+    fi
+}
+
+parse_autotrace() {
+    # enable/disable autotrace
+    case "$OS" in
+        Ubuntu)
+                    install_autotrace
+                    autotrace_flag=true
+                    ;;
+    esac
+
+    if [[ "$autotrace_flag" == "true" ]]; then
+        set_autotrace="--with-autotrace"
+    else
+        set_autotrace="--without-autotrace"
     fi
 }
 
@@ -499,10 +515,10 @@ install_autotrace_fn() {
     echo "Installing required APT packages"
     echo "=========================================="
 
-debian_ver_fn() {
+debian_version() {
     case "$VER" in
-        11)     pkgs_fn "libvmmalloc1 libvmmalloc-dev" ;;
-        12)     pkgs_fn ;;
+        11)     apt_pkgs "libvmmalloc1 libvmmalloc-dev" ;;
+        12)     apt_pkgs ;;
         *)      fail "Could not detect the Debian version. Line: $LINENO" ;;
     esac
 }
@@ -526,8 +542,8 @@ get_os_version
 # DISCOVER WHAT VERSION OF LINUX WE ARE RUNNING (DEBIAN OR UBUNTU)
 case "$OS" in
     Arch)       return ;;
-    Debian)     debian_ver_fn ;;
-    Ubuntu)     pkgs_fn ;;
+    Debian)     debian_version ;;
+    Ubuntu)     apt_pkgs ;;
     *)          fail "Could not detect the OS architecture. Line: $LINENO" ;;
 esac
 
@@ -544,19 +560,6 @@ if build "magick-libs" "$version"; then
     execute alien -d ./*.rpm || fail "Error: alien -d ./*.rpm Line: $LINENO"
     execute dpkg -i ./*.deb
     build_done "magick-libs" "$version"
-fi
-
-# INSTALL AUTOTRACE
-case "$OS" in
-    Ubuntu)
-                install_autotrace_fn
-                autotrace_flag=true
-                ;;
-esac
-if [[ "$autotrace_flag" == "true" ]]; then
-    set_autotrace="--with-autotrace"
-else
-    set_autotrace="--without-autotrace"
 fi
 
 # INSTALL COMPOSER TO COMPILE GRAPHVIZ
@@ -926,6 +929,8 @@ if build "$repo_name" "${version//\$ /}"; then
     build_done "$repo_name" "$version"
 fi
 
+parse_autotrace
+
 # BEGIN BUILDING IMAGEMAGICK
 echo
 box_out_banner_magick() {
@@ -983,7 +988,7 @@ fi
 ldconfig /usr/local/lib
 
 # SHOW THE NEWLY INSTALLED MAGICK VERSION
-show_ver_fn
+show_version
 
 # PROMPT THE USER TO CLEAN UP THE BUILD FILES
 cleanup
