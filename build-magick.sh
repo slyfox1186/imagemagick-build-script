@@ -436,8 +436,8 @@ apt_pkgs() {
         libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgs-dev libheif-dev libhwy-dev
         libjemalloc-dev libjemalloc2 libjxl-dev libnotify-bin libpstoedit-dev
         librust-jpeg-decoder-dev librust-malloc-buf-dev libsharp-dev libticonv-dev
-        libtool libtool-bin libyuv-dev libyuv-utils libyuv0 m4 meson nasm ninja-build
-        pkg-config python3-dev yasm zlib1g-dev php-dev
+        libtool libtool-bin libyuv-dev libyuv-utils libyuv0 lsb-release m4 meson
+        nasm ninja-build pkg-config python3-dev yasm zlib1g-dev php-dev
 )
 
     # Initialize arrays for missing, available, and unavailable packages
