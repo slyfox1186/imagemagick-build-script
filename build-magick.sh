@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC1091,SC2000,SC2046,SC2066,SC2068,SC2086,SC2119,SC2162,SC2181,SC2206
+# shellcheck disable=SC2034
 
 ##  Script Version: 1.2
 ##  Updated: 03.16.24
@@ -35,7 +35,7 @@ script_ver=1.1
 cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
-regex_string='(rc|RC|Rc|rC|alpha|beta|master|pre)+[0-9]*$'
+regex_string='(Rc|rc|rC|RC|alpha|beta|master|pre)+[0-9]*$'
 debug=OFF # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
 
 # Pre-defined color variables
@@ -150,8 +150,8 @@ cleanup() {
     echo "        Do you want to clean up the build files?        "
     echo "========================================================"
     echo
-    echo "[1] Yes"
-    echo "[2] No"
+    echo "[[1]] Yes"
+    echo "[[2]] No"
     echo
 
     read -p "Your choices are (1 or 2): " choice
@@ -324,7 +324,7 @@ show_version() {
 # Parse each git repoitory to find the latest release version number for each program
 gnu_repo() {
     local url="$1"
-    version=$(curl -sS "$url" | grep -oP '[a-z]+-\K(([0-9\.]*[0-9]+)){2,}' | sort -rV | head -n1)
+    version=$(curl -fsS "$url" | grep -oP '[a-z]+-\K(([0-9\.]*[0-9]+)){2,}' | sort -rV | head -n1)
 }
 
 github_repo() {
@@ -334,25 +334,20 @@ github_repo() {
     version=""
 
     # Fetch GitHub tags page
-    while [ $count -le 10 ]; do
+    while [[ $count -le 10 ]]; do
         # Apply case-insensitive matching for RC versions to exclude them
         version=$(curl -fsSL "https://github.com/$git_repo/$git_url" |
-                  grep -oP 'href="[^"]*/tags/[^"]*\.tar\.gz"' |
-                  grep -oP '\/tags\/\K(v?[\w.-]+?)(?=\.tar\.gz)' |
-                  grep -viP '(rc)[0-9]*' |
-                  head -n1 |
-                  sed 's/^v//'
-             )
+                grep -oP 'href="[^"]*/tags/[^"]*\.tar\.gz"' |
+                grep -oP '\/tags\/\K(v?[\w.-]+?)(?=\.tar\.gz)' |
+                grep -iPv '(rc)[0-9]*' | head -n1 | sed 's/^v//')
 
         # Check if a non-RC version was found
         if [[ -n "$version" ]]; then
             break
         else
-            # Increment the count if no non-RC match is found
             ((count++))
         fi
     done
-
     # Handle case where no non-RC version is found after max attempts
     [[ -z "$version" ]] && fail "No matching version found without RC/rc suffix."
 }
@@ -363,9 +358,8 @@ gitlab_freedesktop_repo() {
     count=0
     version=""
 
-    while true
-    do
-        if curl_results=$(curl -m 10 -sSL "https://gitlab.freedesktop.org/api/v4/projects/$repo/repository/tags"); then
+    while true; do
+        if curl_results=$(curl -fsSL "https://gitlab.freedesktop.org/api/v4/projects/$repo/repository/tags"); then
             version=$(echo "$curl_results" | jq -r ".[$count].name")
             version="${version#v}"
 
@@ -391,14 +385,14 @@ gitlab_gnome_repo() {
 
     [[ -z "$repo" ]] && fail "Repository name is required."
 
-    if curl_results=$(curl -sSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url"); then
+    if curl_results=$(curl -fsSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url"); then
         version=$(echo "$curl_results" | jq -r '.[0].name')
         version="${version#v}"
     fi
 
     # Deny installing a release candidate
-    while [ $version =~ $regex_string ]; do
-        if curl_results=$(curl -sSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url"); then
+    while [[ $version =~ $regex_string ]]; do
+        if curl_results=$(curl -fsSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url"); then
             version=$(echo "$curl_results" | jq -r ".[$count].name" | sed 's/^v//')
         fi
         ((count++))
@@ -446,16 +440,14 @@ apt_pkgs() {
     unavailable_packages=()
 
     # Loop through the array to find missing packages
-    for pkg in "${pkgs[@]}"
-    do
+    for pkg in "${pkgs[@]}"; do
         if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed"; then
             missing_packages+=("$pkg")
         fi
     done
 
     # Check availability of missing packages and categorize them
-    for pkg in "${missing_packages[@]}"
-    do
+    for pkg in "${missing_packages[@]}"; do
         if apt-cache show "$pkg" >/dev/null 2>&1; then
             available_packages+=("$pkg")
         else
@@ -464,11 +456,11 @@ apt_pkgs() {
     done
 
     # Print unavailable packages
-    [[ "${#unavailable_packages[@]}" -gt 0 ]] && log "Unavailable packages: ${unavailable_packages[@]}"
+    [[ "${#unavailable_packages[@]}" -gt 0 ]] && log "Unavailable packages: ${unavailable_packages[*]}"
 
     # Install available missing packages
     if [[ "${#available_packages[@]}" -gt 0 ]]; then
-        log "Installing available missing packages: ${available_packages[@]}"
+        log "Installing available missing packages: ${available_packages[*]}"
         apt install "${available_packages[@]}"
     else
         log "No missing packages to install or all missing packages are unavailable."
@@ -477,18 +469,18 @@ apt_pkgs() {
 
 download_autotrace() {
     if build "autotrace" "0.40.0-20200219"; then
-        curl -LsSo "$packages/deb-files/autotrace-0.40.0-20200219.deb" "https://github.com/autotrace/autotrace/releases/download/travis-20200219.65/autotrace_0.40.0-20200219_all.deb"
+        curl -fsSLo "$packages/deb-files/autotrace-0.40.0-20200219.deb" "https://github.com/autotrace/autotrace/releases/download/travis-20200219.65/autotrace_0.40.0-20200219_all.deb"
         cd "$packages/deb-files" || exit 1
-        execute apt -y install ./autotrace-0.40.0-20200219.deb
+        execute apt-get -y install ./autotrace-0.40.0-20200219.deb
         build_done "autotrace" "0.40.0-20200219"
     fi
 }
 
 set_autotrace() {
-    # enable/disable autotrace
+    # Enable or disable autotrace
     case "$OS" in
         Ubuntu) download_autotrace
-                local flag=true
+                local flag="true"
                 ;;
     esac
 
@@ -530,10 +522,10 @@ get_os_version
 
 # DISCOVER WHAT VERSION OF LINUX WE ARE RUNNING (DEBIAN OR UBUNTU)
 case "$OS" in
-    Arch)   return ;;
+    Arch)   ;;
     Debian) debian_version ;;
     Ubuntu) apt_pkgs ;;
-    *)      fail "Could not detect the OS architecture. Line: $LINENO" ;;
+    *) fail "Could not detect the OS architecture. Line: $LINENO" ;;
 esac
 
 # INSTALL OFFICIAL IMAGEMAGICK LIBS
@@ -547,7 +539,7 @@ if build "magick-libs" "$version"; then
         fail "Failed to download the magick-libs file. Line: $LINENO"
     fi
     execute alien -d ./*.rpm || fail "Error: alien -d ./*.rpm Line: $LINENO"
-    execute dpkg -i ./*.deb
+    execute dpkg -i ./*.deb || fail "Error: dpkg -i ./*.deb Line: $LINENO"
     build_done "magick-libs" "$version"
 fi
 
@@ -571,10 +563,7 @@ fi
 # BEGIN BUILDING FROM SOURCE CODE
 if build "m4" "latest"; then
     download "https://ftp.gnu.org/gnu/m4/m4-latest.tar.xz"
-    execute ./configure --prefix="$workspace" \
-                        --disable-nls \
-                        --enable-c++ \
-                        --enable-threads=posix
+    execute ./configure --prefix="$workspace" --disable-nls --enable-c++ --enable-threads=posix
     execute make "-j$cpu_threads"
     execute make install
     build_done "m4" "latest"
@@ -667,7 +656,6 @@ if build "ghostscript" "$version"; then
 fi
 
 get_os_version # Ubuntu throws an error if you don't install png12, however Debian works without issue.
-
 find_git_repo "pnggroup/libpng" "1" "T"
 [[ "$OS" == "Ubuntu" ]] && version="1.2.59"
 if build "libpng" "$version"; then
@@ -738,7 +726,7 @@ fc_dir="$packages/fontconfig-$version"
 if build "fontconfig" "$version"; then
     download "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/$version/fontconfig-$version.tar.bz2"
     LDFLAGS+=" -DLIBXML_STATIC"
-    sed -i "s|Cflags:|& -DLIBXML_STATIC|" fontconfig.pc.in
+    sed -i "s|Cflags:|& -DLIBXML_STATIC|" "fontconfig.pc.in"
     execute ./autogen.sh --noconf
     execute ./configure --prefix="$workspace" \
                         --disable-docbook \
@@ -817,7 +805,7 @@ if build "raqm" "$version"; then
                               --buildtype=release \
                               --default-library=static \
                               --strip \
-                              -Ddocs=false
+                              -Ddocs="false"
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
     build_done "raqm" "$version"
@@ -837,7 +825,7 @@ if build "jemalloc" "$version"; then
                         --enable-autogen \
                         --enable-static \
                         --enable-xmalloc \
-                        CFLAGS="-fPIC"
+                        CFLAGS="$CFLAGS -fPIC"
     execute make "-j$cpu_threads"
     execute make install
     build_done "jemalloc" "$version"
@@ -851,7 +839,7 @@ if build "$repo_name" "${version//\$ /}"; then
             -B build \
             -DCMAKE_INSTALL_PREFIX="$workspace" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE \
+            -DCMAKE_POSITION_INDEPENDENT_CODE="true" \
             -DBUILD_SHARED_LIBS=ON \
             -DBUILD_TESTING=OFF \
             -DBUILD_DOCS=OFF \
@@ -878,7 +866,7 @@ if build "openjpeg" "$version"; then
     execute cmake -B build \
                   -DCMAKE_INSTALL_PREFIX="$workspace" \
                   -DCMAKE_BUILD_TYPE=Release \
-                  -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE \
+                  -DCMAKE_POSITION_INDEPENDENT_CODE="true" \
                   -DBUILD_SHARED_LIBS=ON \
                   -DBUILD_TESTING=OFF \
                   -DBUILD_THIRDPARTY=ON \
@@ -958,13 +946,13 @@ if build "$repo_name" "${version//\$ /}"; then
                          --with-urw-base35-font-dir=/usr/share/fonts/type1/urw-base35 \
                          --with-utilities \
                          "$autotrace_switch" \
-                         CFLAGS="$CFLAGS -fPIE -DCL_TARGET_OPENCL_VERSION=300"
+                         CFLAGS="$CFLAGS -fPIC -fPIE -DCL_TARGET_OPENCL_VERSION=300"
     execute make "-j$cpu_threads"
     execute make install
 fi
 
 # LDCONFIG MUST BE RUN NEXT IN ORDER TO UPDATE FILE CHANGES OR THE MAGICK COMMAND WILL NOT WORK
-ldconfig /usr/local/lib
+ldconfig
 
 # SHOW THE NEWLY INSTALLED MAGICK VERSION
 show_version
