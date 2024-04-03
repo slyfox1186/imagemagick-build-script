@@ -150,8 +150,8 @@ cleanup() {
     echo "        Do you want to clean up the build files?        "
     echo "========================================================"
     echo
-    echo "[[1]] Yes"
-    echo "[[2]] No"
+    echo "[1] Yes"
+    echo "[2] No"
     echo
 
     read -p "Your choices are (1 or 2): " choice
@@ -200,55 +200,37 @@ build_done() {
 }
 
 download() {
-    path="$packages"
-    url="$1"
-    archive="${2:-"${1##*/}"}"
+    local url="$1"
+    local archive="${2:-${url##*/}}"
+    local output_dir="$3"
+    local target_file="$packages/$archive"
+    local target_dir="$packages/${output_dir:-${archive%.tar*}}"
 
-    if [[ "$archive" =~ tar. ]]; then
-        output_dir="${archive%.*}"
-        output_dir="${3:-"${output_dir%.*}"}"
-    else
-        output_dir="${3:-"${archive%.*}"}"
-    fi
-
-    target_file="$path/$archive"
-    target_dir="$path/$output_dir"
-
-    if [[ -f "$target_file" ]]; then
-        echo "The file \"$archive\" is already downloaded."
-    else
-        echo "Downloading \"$url\" saving as \"$archive\""
-        if ! curl -LsSo "$target_file" "$url"; then
-            echo
-            warn "The script failed to download \"$archive\" and will try again in 10 seconds..."
-            echo
-            sleep 10
-            if ! curl -Lsso "$target_file" "$url"; then
-                fail "The script failed to download \"$archive\" twice and will now exit. Line: $LINENO"
-            fi
+    if [[ ! -f "$target_file" ]]; then
+        log "Downloading \"$url\" saving as \"$archive\""
+        if ! curl -fLSso "$target_file" "$url"; then
+            fail "Failed to download \"$archive\". Line: $LINENO"
         fi
-        echo "Download Completed"
+    else
+        log "The file \"$archive\" is already downloaded."
     fi
 
-    [[ -d "$target_dir" ]] && rm -fr "$target_dir"
-
+    rm -rf "$target_dir"
     mkdir -p "$target_dir"
 
-    if [[ -n "$3" ]]; then
-        if ! tar -xf "$target_file" -C "$target_dir" 2>/dev/null >/dev/null; then
+    if [[ -n "$output_dir" ]]; then
+        if ! tar -xf "$target_file" -C "$target_dir" 2>/dev/null; then
             rm "$target_file"
-            fail "The script failed to extract \"$archive\" so it was deleted. Please re-run the script. Line: $LINENO"
+            fail "Failed to extract \"$archive\". Line: $LINENO"
         fi
     else
-        if ! tar -xf "$target_file" -C "$target_dir" --strip-components 1 2>/dev/null >/dev/null; then
+        if ! tar -xf "$target_file" -C "$target_dir" --strip-components=1 2>/dev/null; then
             rm "$target_file"
-            fail "The script failed to extract \"$archive\" so it was deleted. Please re-run the script. Line: $LINENO"
+            fail "Failed to extract \"$archive\". Line: $LINENO"
         fi
     fi
 
-    echo "File extracted: $archive"
-    echo
-
+    log "File extracted: $archive"
     cd "$target_dir" || fail "Unable to change the working directory to \"$target_dir\" Line: $LINENO"
 }
 
@@ -420,7 +402,7 @@ find_git_repo() {
 }
 
 apt_pkgs() {
-    local missing_packages pkg pkgs available_packages unavailable_packages
+    local pkg pkgs missing_packages
 
     pkgs=(
         $1 alien autoconf autoconf-archive binutils bison build-essential
@@ -432,38 +414,25 @@ apt_pkgs() {
         librust-jpeg-decoder-dev librust-malloc-buf-dev libsharp-dev libticonv-dev
         libtool libtool-bin libyuv-dev libyuv-utils libyuv0 lsb-release m4 meson
         nasm ninja-build pkg-config python3-dev yasm zlib1g-dev php-dev
-)
+    )
 
-    # Initialize arrays for missing, available, and unavailable packages
     missing_packages=()
-    available_packages=()
-    unavailable_packages=()
 
-    # Loop through the array to find missing packages
     for pkg in "${pkgs[@]}"; do
         if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed"; then
-            missing_packages+=("$pkg")
+            if apt-cache show "$pkg" >/dev/null 2>&1; then
+                missing_packages+=("$pkg")
+            else
+                log "Package '$pkg' is not available in the repositories"
+            fi
         fi
     done
 
-    # Check availability of missing packages and categorize them
-    for pkg in "${missing_packages[@]}"; do
-        if apt-cache show "$pkg" >/dev/null 2>&1; then
-            available_packages+=("$pkg")
-        else
-            unavailable_packages+=("$pkg")
-        fi
-    done
-
-    # Print unavailable packages
-    [[ "${#unavailable_packages[@]}" -gt 0 ]] && log "Unavailable packages: ${unavailable_packages[*]}"
-
-    # Install available missing packages
-    if [[ "${#available_packages[@]}" -gt 0 ]]; then
-        log "Installing available missing packages: ${available_packages[*]}"
-        apt install "${available_packages[@]}"
+    if [[ "${#missing_packages[@]}" -gt 0 ]]; then
+        log "Installing missing packages: ${missing_packages[*]}"
+        apt install "${missing_packages[@]}"
     else
-        log "No missing packages to install or all missing packages are unavailable."
+        log "No missing packages to install"
     fi
 }
 
