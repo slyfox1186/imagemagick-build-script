@@ -36,7 +36,7 @@ cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
 regex_string='(Rc|rc|rC|RC|alpha|beta|master|pre)+[0-9]*$'
-debug=ON
+debug=OFF
 
 # Pre-defined color variables
 RED='\033[0;31m'
