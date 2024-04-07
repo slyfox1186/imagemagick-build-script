@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
 
-##  Script Version: 1.2
-##  Updated: 03.16.24
+##  Script Version: 1.3
+##  Updated: 04.07.24
 ##  GitHub: https://github.com/slyfox1186/imagemagick-build-script
 ##  Purpose: Build ImageMagick 7 from the source code obtained from ImageMagick's official GitHub repository
 ##  Function: ImageMagick is the leading open-source command line image processor. It can blur, sharpen, warp,
@@ -36,7 +36,7 @@ cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
 regex_string='(Rc|rc|rC|RC|alpha|beta|master|pre)+[0-9]*$'
-debug=OFF # CHANGE THIS VARIABLE TO "ON" FOR HELP WITH TROUBLESHOOTING UNEXPECTED ISSUES DURING THE BUILD
+debug=ON
 
 # Pre-defined color variables
 RED='\033[0;31m'
@@ -64,11 +64,13 @@ box_out_banner_header "ImageMagick Build Script v$script_ver"
 mkdir -p "$packages" "$workspace"
 
 # SET THE COMPILERS TO USE AND THE COMPILER OPTIMIZATION FLAGS
-CC=gcc
-CXX=g++
-CFLAGS="-g -O3 -pipe -march=native"
-CXXFLAGS="-g -O3 -pipe -march=native"
-export CC CFLAGS CXX CXXFLAGS
+CC="gcc"
+CXX="g++"
+CFLAGS="-O3 -fPIC -pipe -march=native -mtune=native -fstack-protector-strong"
+CXXFLAGS="$CFLAGS"
+CPPFLAGS="-I$workspace/include -I/usr/local/include -I/usr/include -D_FORTIFY_SOURCE=2"
+LDFLAGS="-Wl,-O1 -Wl,--as-needed -Wl,-rpath,/usr/local/lib64:/usr/local/lib"
+export CC CXX CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
 
 # SET THE AVAILABLE CPU COUNT FOR PARALLEL PROCESSING (SPEEDS UP THE BUILD PROCESS)
 if [[ -f /proc/cpuinfo ]]; then
@@ -111,10 +113,7 @@ $workspace/share/pkgconfig:\
 /usr/lib64/pkgconfig:\
 /usr/lib/pkgconfig:\
 /usr/lib/x86_64-linux-gnu/pkgconfig:\
-/usr/share/pkgconfig:\
-/lib64/pkgconfig:\
-/lib/x86_64-linux-gnu/pkgconfig:\
-/lib/pkgconfig\
+/usr/share/pkgconfig\
 "
 export PKG_CONFIG_PATH
 
@@ -410,10 +409,10 @@ apt_pkgs() {
         libcamd2 libcpu-features-dev libdmalloc-dev libdmalloc5 libfont-ttf-perl
         libfontconfig-dev libgc-dev libgc1 libgegl-0.4-0 libgegl-common libgimp2.0
         libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgs-dev libheif-dev libhwy-dev
-        libjemalloc-dev libjemalloc2 libjxl-dev libnotify-bin libpstoedit-dev
-        librust-jpeg-decoder-dev librust-malloc-buf-dev libsharp-dev libticonv-dev
-        libtool libtool-bin libyuv-dev libyuv-utils libyuv0 lsb-release m4 meson
-        nasm ninja-build pkg-config python3-dev yasm zlib1g-dev php-dev
+        libjemalloc-dev libjxl-dev libnotify-bin libpstoedit-dev librust-jpeg-decoder-dev
+        librust-malloc-buf-dev libsharp-dev libticonv-dev libtool libtool-bin libyuv-dev
+        libyuv-utils libyuv0 lsb-release m4 meson nasm ninja-build php-dev pkg-config
+        python3-dev yasm zlib1g-dev
     )
 
     missing_packages=()
@@ -529,25 +528,14 @@ if [[ ! -f "/usr/bin/composer" ]]; then
     rm "composer-setup.php"
 fi
 
-# BEGIN BUILDING FROM SOURCE CODE
-if build "m4" "latest"; then
-    download "https://ftp.gnu.org/gnu/m4/m4-latest.tar.xz"
-    execute ./configure --prefix="$workspace" --disable-nls --enable-c++ --enable-threads=posix
-    execute make "-j$cpu_threads"
-    execute make install
-    build_done "m4" "latest"
-fi
-
-if build "autoconf" "latest"; then
-    download "http://ftp.gnu.org/gnu/autoconf/autoconf-latest.tar.xz"
-    execute autoreconf -fi
-    execute ./configure --prefix="$workspace" M4="$workspace/bin/m4"
-    execute make "-j$cpu_threads"
-    execute make install
-    build_done "autoconf" "latest"
-fi
-
-gnu_repo "https://ftp.gnu.org/gnu/libtool/"
+case "$OS" in
+    Ubuntu)
+        version="2.4.6"
+        ;;
+    *)
+        version="2.4.7"
+        ;;
+esac
 if build "libtool" "$version"; then
     download "https://ftp.gnu.org/gnu/libtool/libtool-$version.tar.xz"
     execute ./configure --prefix="$workspace" --with-pic M4="$workspace/bin/m4"
@@ -567,15 +555,6 @@ if build "pkg-config" "$version"; then
     execute make "-j$cpu_threads"
     execute make install
     build_done "pkg-config" "$version"
-fi
-
-find_git_repo "madler/zlib" "1" "T"
-if build "zlib" "$version"; then
-    download "https://github.com/madler/zlib/releases/download/v$version/zlib-$version.tar.gz"
-    execute ./configure --prefix="$workspace"
-    execute make "-j$cpu_threads"
-    execute make install
-    build_done "zlib" "$version"
 fi
 
 find_git_repo "libsdl-org/libtiff" "1" "T"
@@ -624,16 +603,27 @@ if build "ghostscript" "$version"; then
     build_done "ghostscript" "$version"
 fi
 
-get_os_version # Ubuntu throws an error if you don't install png12, however Debian works without issue.
 find_git_repo "pnggroup/libpng" "1" "T"
-[[ "$OS" == "Ubuntu" ]] && version="1.2.59"
 if build "libpng" "$version"; then
     download "https://github.com/pnggroup/libpng/archive/refs/tags/v$version.tar.gz" "libpng-$version.tar.gz"
     execute autoreconf -fi
-    execute ./configure --prefix="$workspace" --with-pic
+    execute ./configure --prefix="$workspace" --enable-hardware-optimizations=yes --with-pic
     execute make "-j$cpu_threads"
     execute make install
     build_done "libpng" "$version"
+fi
+
+if [[ "$OS" == "Ubuntu" ]]; then
+    version="1.2.59"
+    if build "libpng12" "$version"; then
+        download "https://github.com/pnggroup/libpng/archive/refs/tags/v$version.tar.gz" "libpng12-$version.tar.gz"
+        execute autoreconf -fi
+        execute ./configure --prefix="$workspace" --with-pic
+        execute make "-j$cpu_threads"
+        execute make install
+        execute rm /home/jman/tmp/magick-build-script/workspace/include/png.h
+        build_done "libpng12" "$version"
+    fi
 fi
 
 git_caller "https://chromium.googlesource.com/webm/libwebp" "libwebp-git"
@@ -676,8 +666,8 @@ if build "freetype" "$version1"; then
 fi
 
 find_git_repo "1665" "3" "T"
-if build "libxml2" "2.12.0"; then
-    download "https://gitlab.gnome.org/GNOME/libxml2/-/archive/v2.12.0/libxml2-v2.12.0.tar.bz2" "libxml2-2.12.0.tar.bz2"
+if build "libxml2" "$version"; then
+    download "https://gitlab.gnome.org/GNOME/libxml2/-/archive/v$version/libxml2-v$version.tar.bz2" "libxml2-$version.tar.bz2"
     CFLAGS+=" -DNOLIBTOOL"
     execute ./autogen.sh
     execute cmake -B build \
@@ -687,7 +677,7 @@ if build "libxml2" "2.12.0"; then
                   -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
-    build_done "libxml2" "2.12.0"
+    build_done "libxml2" "$version"
 fi
 
 find_git_repo "890" "2"
@@ -826,6 +816,7 @@ if build "$repo_name" "${version//\$ /}"; then
             -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
+    execute mv $workspace/lib/pkgconfig/libpng.pc $workspace/lib/pkgconfig/libpng-12.pc
     build_done "$repo_name" "$version"
 fi
 
@@ -914,8 +905,11 @@ if build "$repo_name" "${version//\$ /}"; then
                          --with-tcmalloc \
                          --with-urw-base35-font-dir=/usr/share/fonts/type1/urw-base35 \
                          --with-utilities \
-                         "$autotrace_switch" \
-                         CFLAGS="$CFLAGS -fPIC -fPIE -DCL_TARGET_OPENCL_VERSION=300"
+                         --with-autotrace \
+                         CFLAGS="$CFLAGS -DCL_TARGET_OPENCL_VERSION=300" \
+                         CXXFLAGS="$CFLAGS -DCL_TARGET_OPENCL_VERSION=300" \
+                         CPPFLAGS="$CPPFLAGS -I$workspace/include/CL -I/usr/include" \
+                         PKG_CONFIG="$workspace/bin/pkg-config"
     execute make "-j$cpu_threads"
     execute make install
 fi
