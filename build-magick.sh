@@ -66,7 +66,7 @@ mkdir -p "$packages" "$workspace"
 # SET THE COMPILERS TO USE AND THE COMPILER OPTIMIZATION FLAGS
 CC="gcc"
 CXX="g++"
-CFLAGS="-O3 -fPIC -pipe -march=native -mtune=native -fstack-protector-strong"
+CFLAGS="-O2 -fPIC -pipe -march=native -mtune=native -fstack-protector-strong"
 CXXFLAGS="$CFLAGS"
 CPPFLAGS="-I$workspace/include -I/usr/local/include -I/usr/include -D_FORTIFY_SOURCE=2"
 LDFLAGS="-Wl,-O1 -Wl,--as-needed -Wl,-rpath,/usr/local/lib64:/usr/local/lib"
@@ -784,7 +784,7 @@ if build "jemalloc" "$version"; then
                         --enable-autogen \
                         --enable-static \
                         --enable-xmalloc \
-                        CFLAGS="$CFLAGS -fPIC"
+                        CFLAGS="$CFLAGS"
     execute make "-j$cpu_threads"
     execute make install
     build_done "jemalloc" "$version"
