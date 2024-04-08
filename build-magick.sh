@@ -621,7 +621,7 @@ if [[ "$OS" == "Ubuntu" ]]; then
         execute ./configure --prefix="$workspace" --with-pic
         execute make "-j$cpu_threads"
         execute make install
-        execute rm /home/jman/tmp/magick-build-script/workspace/include/png.h
+        execute rm "$workspace/include/png.h"
         build_done "libpng12" "$version"
     fi
 fi
