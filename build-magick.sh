@@ -446,8 +446,8 @@ download_autotrace() {
 
 set_autotrace() {
     # Enable or disable autotrace
-    case "$OS" in
-        Ubuntu) download_autotrace
+    case "$VER" in
+        18.04:20.04|22.04|10|11|12) download_autotrace
                 local flag="true"
                 ;;
     esac
