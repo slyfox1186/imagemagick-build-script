@@ -875,9 +875,9 @@ box_out_banner_magick() {
 }
 box_out_banner_magick "Build ImageMagick"
 
-git_caller "https://github.com/imagemagick/imagemagick.git" "imagemagick-git"
-if build "$repo_name" "${version//\$ /}"; then
-    git_clone "$git_url" "$repo_name"
+find_git_repo "ImageMagick/ImageMagick" "1" "T"
+if build "imagemagick" "$version"; then
+    download "https://github.com/ImageMagick/ImageMagick/archive/refs/tags/$version.tar.gz" "imagemagick-$version.tar.gz"
     execute autoreconf -fi
     mkdir build; cd build || exit 1
     execute ../configure --prefix=/usr/local \
