@@ -528,8 +528,8 @@ if [[ ! -f "/usr/bin/composer" ]]; then
     rm "composer-setup.php"
 fi
 
-case "$OS" in
-    Ubuntu)
+case "$VER" in
+    18.04|20.04|22.04)
         version="2.4.6"
         ;;
     *)
