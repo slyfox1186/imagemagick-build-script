@@ -446,8 +446,8 @@ download_autotrace() {
 
 set_autotrace() {
     # Enable or disable autotrace
-    case "$VER" in
-        18.04:20.04|22.04|10|11|12) download_autotrace
+    case "$OS" in
+        Ubuntu) download_autotrace
                 local flag="true"
                 ;;
     esac
@@ -528,8 +528,8 @@ if [[ ! -f "/usr/bin/composer" ]]; then
     rm "composer-setup.php"
 fi
 
-case "$VER" in
-    18.04|20.04|22.04)
+case "$OS" in
+    Ubuntu)
         version="2.4.6"
         ;;
     *)
@@ -565,6 +565,19 @@ if build "libtiff" "$version"; then
     execute make "-j$cpu_threads"
     execute make install
     build_done "libtiff" "$version"
+fi
+
+find_git_repo "gperftools/gperftools" "1" "T"
+version="${version#gperftools-}"
+if build "gperftools" "$version"; then
+    download "https://github.com/gperftools/gperftools/releases/download/gperftools-$version/gperftools-$version.tar.gz" "gperftools-$version.tar.bz2"
+    CFLAGS+=" -DNOLIBTOOL"
+    execute autoreconf -fi
+    mkdir build; cd build
+    execute ../configure --prefix="$workspace" --with-pic --with-tcmalloc-pagesize=256
+    execute make "-j$cpu_threads"
+    execute make install
+    build_done "gperftools" "$version"
 fi
 
 git_caller "https://github.com/imageMagick/jpeg-turbo.git" "jpeg-turbo-git"
