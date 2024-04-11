@@ -1,3 +1,10 @@
+#!/usr/bin/env bash
+
+# Calculate the maximum CPU threads
+max_threads=$(nproc --all)
+
+# Update the XML content with the calculated max_threads value
+updated_xml=$(cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE policymap [
 <!ELEMENT policymap (policy)*>
@@ -11,80 +18,10 @@
 <!ATTLIST policy stealth NMTOKEN #IMPLIED>
 <!ATTLIST policy value CDATA #IMPLIED>
 ]>
-<!--
-  Creating a security policy that fits your specific local environment
-  before making use of ImageMagick is highly advised. You can find guidance on
-  setting up this policy at https://imagemagick.org/script/security-policy.php,
-  and it's important to verify your policy using the validation tool located
-  at https://imagemagick-secevaluator.doyensec.com/.
-
-
-  Open ImageMagick security policy:
-
-  The default policy for ImageMagick installations is the open security
-  policy. This policy is designed for usage in secure settings like those
-  protected by firewalls or within Docker containers. Within this framework,
-  ImageMagick enjoys broad access to resources and functionalities. This policy
-  provides convenient and adaptable options for image manipulation. However,
-  it's important to note that it might present security vulnerabilities in
-  less regulated conditions. Thus, organizations should thoroughly assess
-  the appropriateness of the open policy according to their particular use
-  case and security prerequisites.
-
-  ImageMagick security policies in a nutshell:
-
-  Domains include system, delegate, coder, filter, module, path, or resource.
-
-  Rights include none, read, write, execute and all.  Use | to combine them,
-  for example: "read | write" to permit read from, or write to, a path.
-
-  Use a glob expression as a pattern.
-
-  Suppose we do not want users to process MPEG video images, use this policy:
-
-    <policy domain="delegate" rights="none" pattern="mpeg:decode" />
-
-  Here we do not want users reading images from HTTP:
-
-    <policy domain="coder" rights="none" pattern="HTTP" />
-
-  The /repository file system is restricted to read only.  We use a glob
-  expression to match all paths that start with /repository:
-
-    <policy domain="path" rights="read" pattern="/repository/*" />
-
-  Prevent users from executing any image filters:
-
-    <policy domain="filter" rights="none" pattern="*" />
-
-  Cache large images to disk rather than memory:
-
-    <policy domain="resource" name="area" value="1GP"/>
-
-  Use the default system font unless overridden by the application:
-
-    <policy domain="system" name="font" value="/usr/share/fonts/favorite.ttf"/>
-
-  Define arguments for the memory, map, area, width, height and disk resources
-  with SI prefixes (.e.g 100MB).  In addition, resource policies are maximums
-  for each instance of ImageMagick (e.g. policy memory limit 1GB, -limit 2GB
-  exceeds policy maximum so memory limit is 1GB).
-
-  Rules are processed in order.  Here we want to restrict ImageMagick to only
-  read or write a small subset of proven web-safe image types:
-
-    <policy domain="delegate" rights="none" pattern="*" />
-    <policy domain="filter" rights="none" pattern="*" />
-    <policy domain="coder" rights="none" pattern="*" />
-    <policy domain="coder" rights="read|write" pattern="{GIF,JPEG,PNG,WEBP}" />
-
-  See https://imagemagick.org/script/security-policy.php for a deeper
-  understanding of ImageMagick security policies.
--->
 <policymap>
   <policy domain="Undefined" rights="none"/>
   <!-- Set maximum parallel threads. -->
-       <policy domain="resource" name="thread" value="32"/>
+       <policy domain="resource" name="thread" value="$max_threads"/>
   <!-- Set maximum time to live in seconds or neumonics, e.g. "2 minutes". When
        this limit is exceeded, an exception is thrown and processing stops. -->
   <!-- <policy domain="resource" name="time" value="120"/> -->
@@ -151,3 +88,8 @@
        allocation requests. -->
   <!-- <policy domain="system" name="max-memory-request" value="256MiB"/> -->
 </policymap>
+EOF
+)
+
+# Save the updated XML content to the specified file
+echo "$updated_xml" | sudo tee "/usr/local/etc/ImageMagick-7/policy.xml" >/dev/null
