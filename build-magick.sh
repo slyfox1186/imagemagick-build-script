@@ -164,6 +164,10 @@ cleanup() {
     esac
 }
 
+set_high_end_cpu() {
+    bash <(https://raw.githubusercontent.com/slyfox1186/imagemagick-build-script/main/high-end-cpu-policy.sh)
+}
+
 execute() {
     echo "$ $*"
 
@@ -932,6 +936,9 @@ ldconfig
 
 # SHOW THE NEWLY INSTALLED MAGICK VERSION
 show_version
+
+# Set the policy.xml for High End CPU's
+set_high_end_cpu
 
 # PROMPT THE USER TO CLEAN UP THE BUILD FILES
 cleanup
