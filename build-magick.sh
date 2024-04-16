@@ -898,7 +898,7 @@ box_out_banner_magick "Build ImageMagick"
 
 find_git_repo "ImageMagick/ImageMagick" "1" "T"
 if build "imagemagick" "$version"; then
-    download "https://github.com/ImageMagick/ImageMagick/archive/refs/tags/$version.tar.gz" "imagemagick-$version.tar.gz"
+    download "https://imagemagick.org/archive/releases/ImageMagick-$version.tar.lz" "imagemagick-$version.tar.lz"
     execute autoreconf -fi
     mkdir build; cd build || exit 1
     execute ../configure --prefix=/usr/local \
@@ -935,13 +935,13 @@ if build "imagemagick" "$version"; then
     execute make install
 fi
 
-# LDCONFIG MUST BE RUN NEXT IN ORDER TO UPDATE FILE CHANGES OR THE MAGICK COMMAND WILL NOT WORK
+# LDCONFIG MUST BE RUN NEXT TO UPDATE FILE CHANGES OR THE MAGICK COMMAND WILL NOT WORK
 ldconfig
 
 # SHOW THE NEWLY INSTALLED MAGICK VERSION
 show_version
 
-# Set the policy.xml for High End CPU's
+# Set the policy.xml for High-End CPU's
 set_high_end_cpu
 
 # PROMPT THE USER TO CLEAN UP THE BUILD FILES
