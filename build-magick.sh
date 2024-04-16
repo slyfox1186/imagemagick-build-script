@@ -420,7 +420,7 @@ apt_pkgs() {
         libjemalloc-dev libjxl-dev libnotify-bin libpstoedit-dev librust-jpeg-decoder-dev
         librust-malloc-buf-dev libsharp-dev libticonv-dev libtool libtool-bin libyuv-dev
         libyuv-utils libyuv0 lsb-release m4 meson nasm ninja-build php-dev pkg-config
-        python3-dev yasm zlib1g-dev
+        python3-dev yasm zlib1g-dev lzip
     )
 
     missing_packages=()
