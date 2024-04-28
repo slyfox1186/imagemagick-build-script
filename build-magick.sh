@@ -64,9 +64,9 @@ box_out_banner_header "ImageMagick Build Script v$script_ver"
 mkdir -p "$packages" "$workspace"
 
 # SET THE COMPILERS TO USE AND THE COMPILER OPTIMIZATION FLAGS
-CC="gcc"
-CXX="g++"
-CFLAGS="-O2 -fPIC -pipe -march=native -mtune=native -fstack-protector-strong"
+CC="ccache gcc"
+CXX="ccache g++"
+CFLAGS="-O3 -fPIC -pipe -march=native -fstack-protector-strong"
 CXXFLAGS="$CFLAGS"
 CPPFLAGS="-I$workspace/include -I/usr/local/include -I/usr/include -D_FORTIFY_SOURCE=2"
 LDFLAGS="-Wl,-O1 -Wl,--as-needed -Wl,-rpath,/usr/local/lib64:/usr/local/lib"
@@ -506,17 +506,17 @@ esac
 
 # INSTALL OFFICIAL IMAGEMAGICK LIBS
 find_git_repo "imagemagick/imagemagick" "1" "T"
-if build "magick-libs" "$version"; then
+if build "magick-libs" "7.1.1-30"; then
     if [[ ! -d "$packages/deb-files" ]]; then
         mkdir -p "$packages/deb-files"
     fi
     cd "$packages/deb-files" || exit 1
-    if ! curl -LsSo "magick-libs-$version.rpm" "https://imagemagick.org/archive/linux/CentOS/x86_64/ImageMagick-libs-$version.x86_64.rpm"; then
+    if ! curl -LsSo "magick-libs-7.1.1-30.rpm" "https://web.archive.org/web/20240408031327/https://imagemagick.org/archive/linux/CentOS/x86_64/ImageMagick-7.1.1-30.x86_64.rpm"; then
         fail "Failed to download the magick-libs file. Line: $LINENO"
     fi
     execute alien -d ./*.rpm || fail "Error: alien -d ./*.rpm Line: $LINENO"
     execute dpkg -i ./*.deb || fail "Error: dpkg -i ./*.deb Line: $LINENO"
-    build_done "magick-libs" "$version"
+    build_done "magick-libs" "7.1.1-30"
 fi
 
 # INSTALL COMPOSER TO COMPILE GRAPHVIZ
@@ -689,7 +689,6 @@ fi
 find_git_repo "1665" "3" "T"
 if build "libxml2" "$version"; then
     download "https://gitlab.gnome.org/GNOME/libxml2/-/archive/v$version/libxml2-v$version.tar.bz2" "libxml2-$version.tar.bz2"
-    CFLAGS+=" -DNOLIBTOOL"
     execute ./autogen.sh
     execute cmake -B build \
                   -DCMAKE_INSTALL_PREFIX="$workspace" \
