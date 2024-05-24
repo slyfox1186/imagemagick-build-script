@@ -637,7 +637,7 @@ fi
 find_git_repo "ArtifexSoftware/ghostpdl-downloads" "1" "T"
 find_ghostscript_version "$version"
 if build "ghostscript" "$version"; then
-    download "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/$version/ghostscript-$modify_version.tar.xz" "ghostscript-$modify_version.tar.xz"
+    download "$gscript_url" "ghostscript-$version.tar.xz"
     execute ./autogen.sh
     execute ./configure --prefix="$workspace" --with-libiconv=native
     execute make "-j$cpu_threads"
