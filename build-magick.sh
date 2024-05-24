@@ -20,7 +20,7 @@ cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
 regex_string='(Rc|rc|rC|RC|alpha|beta|master|pre)+[0-9]*$'
-debug=OFF
+debug=ON
 
 # Pre-defined color variables
 RED='\033[0;31m'
@@ -48,8 +48,8 @@ box_out_banner_header "ImageMagick Build Script v$script_ver"
 mkdir -p "$packages" "$workspace"
 
 # SET THE COMPILERS TO USE AND THE COMPILER OPTIMIZATION FLAGS
-CC="ccache gcc"
-CXX="ccache g++"
+CC="gcc"
+CXX="g++"
 CFLAGS="-O3 -fPIC -pipe -march=native -fstack-protector-strong"
 CXXFLAGS="$CFLAGS"
 CPPFLAGS="-I$workspace/include -I/usr/local/include -I/usr/include -D_FORTIFY_SOURCE=2"
