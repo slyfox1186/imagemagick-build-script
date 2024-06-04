@@ -410,7 +410,7 @@ apt_pkgs() {
         jq libc6 libcamd2 libcpu-features-dev libdmalloc-dev libdmalloc5
         libfont-ttf-perl libfontconfig-dev libgc-dev libgc1 libgegl-0.4-0
         libgegl-common libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgs-dev
-        libheif-dev libhwy-dev libjemalloc-dev libjxl-dev libnotify-bin
+        libheif-dev libhwy-dev libjemalloc-dev libjpeg62 libjxl-dev libnotify-bin
         libpstoedit-dev librust-jpeg-decoder-dev librust-malloc-buf-dev
         libsharp-dev libticonv-dev libtool libtool-bin libyuv-dev libyuv-utils
         libyuv0 lsb-release lzip m4 meson nasm ninja-build php-dev pkg-config
