@@ -167,7 +167,7 @@ execute() {
     else
         if ! output=$("$@" 2>&1); then
             notify-send -t 5000 "Failed to execute: $*" 2>/dev/null
-            fail "Failed to execute: $*"
+            fail "Failed to execute: $*. Line: $LINENO"
         fi
     fi
 }
@@ -322,7 +322,7 @@ github_repo() {
         fi
     done
     # Handle case where no non-RC version is found after max attempts
-    [[ -z "$version" ]] && fail "No matching version found without RC/rc suffix."
+    [[ -z "$version" ]] && fail "No matching version found without RC/rc suffix. Line: $LINENO"
 }
 
 gitlab_freedesktop_repo() {
@@ -343,7 +343,7 @@ gitlab_freedesktop_repo() {
                 break # Exit the loop when a non-RC version is found
             fi
         else
-            fail "Failed to fetch data from GitLab API."
+            fail "Failed to fetch data from GitLab API. Line: $LINENO"
         fi
     done
 }
@@ -356,7 +356,7 @@ gitlab_gnome_repo() {
     count=0
     version=""
 
-    [[ -z "$repo" ]] && fail "Repository name is required."
+    [[ -z "$repo" ]] && fail "Repository name is required. Line: $LINENO"
 
     if curl_results=$(curl -fsSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url"); then
         version=$(echo "$curl_results" | jq -r '.[0].name')
@@ -381,7 +381,7 @@ find_git_repo() {
         1) set_repo="github_repo" ;;
         2) set_repo="gitlab_freedesktop_repo" ;;
         3) set_repo="gitlab_gnome_repo" ;;
-        *) fail "Error: Could not detect the variable \"\$git_repo_type\" in the function \"find_git_repo\". (Line: $LINENO)"
+        *) fail "Error: Could not detect the variable \"\$git_repo_type\" in the function \"find_git_repo\". Line: $LINENO"
     esac
 
     case "$url_action" in
