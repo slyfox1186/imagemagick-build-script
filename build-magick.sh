@@ -392,8 +392,6 @@ find_git_repo() {
     "$set_repo" "$url" "$set_action" 2>/dev/null
 }
 
-find_git_repo "7950" "2" "T"
-
 find_ghostscript_version() {
     version="$1"
     # Extract numeric part of version (removing 'gs' prefix if it exists)
