@@ -683,6 +683,8 @@ fi
 find_git_repo "1665" "3" "T"
 if build "libxml2" "$version"; then
     download "https://gitlab.gnome.org/GNOME/libxml2/-/archive/v$version/libxml2-v$version.tar.bz2" "libxml2-$version.tar.bz2"
+    export PYTHON_CFLAGS=$(python3.11-config --cflags)
+    export PYTHON_LIBS=$(python3.11-config --ldflags)
     execute ./autogen.sh
     execute cmake -B build -DCMAKE_INSTALL_PREFIX="$workspace" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
