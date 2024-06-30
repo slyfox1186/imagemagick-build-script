@@ -784,7 +784,6 @@ find_git_repo "harfbuzz/harfbuzz" "1" "T"
 if build "harfbuzz" "$version"; then
     download "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/$version.tar.gz" "harfbuzz-$version.tar.gz"
     extracmds=("-D"{benchmark,cairo,docs,glib,gobject,icu,introspection,tests}"=disabled")
-    execute ./autogen.sh
     execute meson setup build --prefix="$workspace" \
                               --buildtype=release \
                               --default-library=static \
