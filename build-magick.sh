@@ -705,10 +705,15 @@ fi
 find_git_repo "1665" "3" "T"
 if build "libxml2" "$version"; then
     download "https://gitlab.gnome.org/GNOME/libxml2/-/archive/v$version/libxml2-v$version.tar.bz2" "libxml2-$version.tar.bz2"
-    export PYTHON_CFLAGS=$(python3.11-config --cflags)
-    export PYTHON_LIBS=$(python3.11-config --ldflags)
+    if command -v python3.11-config &>/dev/null; then
+        export PYTHON_CFLAGS=$(python3.11-config --cflags)
+        export PYTHON_LIBS=$(python3.11-config --ldflags)
+    else
+        export PYTHON_CFLAGS=$(python3.12-config --cflags)
+        export PYTHON_LIBS=$(python3.12-config --ldflags)
+    fi
     execute ./autogen.sh
-    execute cmake -B build -DCMAKE_INSTALL_PREFIX="$workspace" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -G Ninja -Wno-dev
+    execute cmake -B build -DCMAKE_INSTALL_PREFIX="$workspace" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
     build_done "libxml2" "$version"
