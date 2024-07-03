@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
 
-# Script Version: 1.1.0
-# Updated: 06.25.24
+# Script Version: 1.1.1
+# Updated: 07.03.24
 # GitHub: https://github.com/slyfox1186/imagemagick-build-script
 # Purpose: Build ImageMagick 7 from the source code obtained from ImageMagick's official GitHub repository
 # Supported OS: Debian (11|12) | Ubuntu (20|22|24).04
@@ -13,7 +13,7 @@ if [[ "$EUID" -ne 0 ]]; then
 fi
 
 # SET GLOBAL VARIABLES
-script_ver="1.1.0"
+script_ver="1.1.1"
 cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
@@ -398,7 +398,8 @@ find_ghostscript_version() {
 }
 
 apt_pkgs() {
-    local pkg pkgs missing_packages
+    local pkg missing_packages
+    local -a pkgs=()
 
     pkgs=(
         $1 alien autoconf autoconf-archive binutils bison build-essential
@@ -406,12 +407,15 @@ apt_pkgs() {
         jq libc6 libcamd2 libcpu-features-dev libdmalloc-dev libdmalloc5
         libfont-ttf-perl libfontconfig-dev libgc-dev libgc1 libgegl-0.4-0
         libgegl-common libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgs-dev
-        libheif-dev libhwy-dev libjemalloc-dev libjpeg62 libjxl-dev libnotify-bin
+        libheif-dev libhwy-dev libjemalloc-dev libjxl-dev libnotify-bin
         libpstoedit-dev librust-jpeg-decoder-dev librust-malloc-buf-dev
         libsharp-dev libticonv-dev libtool libtool-bin libyuv-dev libyuv-utils
         libyuv0 lsb-release lzip m4 meson nasm ninja-build php-dev pkg-config
         python3-dev yasm zlib1g-dev
     )
+
+    [[ "$OS" == "Debian" ]] && pkgs+=(libjpeg62-turbo libjpeg62-turbo-dev)
+    [[ "$OS" == "Ubuntu" ]] && pkgs+=(libjpeg62 libjpeg62-dev)
 
     # Initialize arrays for missing, available, and unavailable packages
     missing_packages=()
@@ -455,7 +459,6 @@ apt_pkgs() {
         echo
     else
         log "No missing packages to install or all missing packages are unavailable."
-        echo
     fi
 }
 
