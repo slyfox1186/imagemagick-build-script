@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
 
-# Script Version: 1.1.1
-# Updated: 07.03.24
+# Script Version: 1.1.2
+# Updated: 08.13.24
 # GitHub: https://github.com/slyfox1186/imagemagick-build-script
 # Purpose: Build ImageMagick 7 from the source code obtained from ImageMagick's official GitHub repository
 # Supported OS: Debian (11|12) | Ubuntu (20|22|24).04
@@ -726,8 +726,14 @@ find_git_repo "890" "2"
 fc_dir="$packages/fontconfig-$version"
 if build "fontconfig" "$version"; then
     download "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/$version/fontconfig-$version.tar.bz2"
-    LDFLAGS+=" -DLIBXML_STATIC"
+    
+    # Explicitly add paths for zlib and lzma, and link them
+    LDFLAGS+=" -DLIBXML_STATIC -L/usr/lib/x86_64-linux-gnu -lz -llzma"
+    CFLAGS+=" -I/usr/include -I/usr/include/libxml2"
+
+    # Update the pkg-config file to include LIBXML_STATIC
     sed -i "s|Cflags:|& -DLIBXML_STATIC|" "fontconfig.pc.in"
+    
     execute ./autogen.sh --noconf
     execute ./configure --prefix="$workspace" \
                         --disable-docbook \
@@ -739,7 +745,10 @@ if build "fontconfig" "$version"; then
                         --enable-static \
                         --with-arch="$(uname -m)" \
                         --with-libiconv-prefix=/usr \
-                        --with-pic
+                        --with-pic \
+                        CFLAGS="$CFLAGS" \
+                        LDFLAGS="$LDFLAGS"
+    
     execute make "-j$cpu_threads"
     execute make install
     build_done "fontconfig" "$version"
