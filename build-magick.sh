@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
 
-# Script Version: 1.1.2
-# Updated: 08.13.24
+# Script Version: 1.1.3
+# Updated: 09.29.24
 # GitHub: https://github.com/slyfox1186/imagemagick-build-script
 # Purpose: Build ImageMagick 7 from the source code obtained from ImageMagick's official GitHub repository
 # Supported OS: Debian (11|12) | Ubuntu (20|22|24).04
@@ -13,7 +13,7 @@ if [[ "$EUID" -ne 0 ]]; then
 fi
 
 # SET GLOBAL VARIABLES
-script_ver="1.1.1"
+script_ver="1.1.3"
 cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
@@ -390,11 +390,11 @@ download_fonts() {
 
 find_ghostscript_version() {
     version="$1"
-    # Extract the numeric part of the version (removing the prefix text 'gs' if it exists)
-    gs_modified="$(echo "$version" | sed -E 's/([0-9]+)\.([0-9]+)\.([0-9]+)/gs\1\2\3/')"
-
-    # Construct the archive URL using the original version string without dots
-    gscript_url="https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/${gs_modified}/ghostscript-${version}.tar.xz"
+    formatted_version=$(
+                        echo "$version" |
+                        sed -E 's/gs([0-9]{2})([0-9]{2})([0-9])/\1.\2.\3/'
+                    )
+    gscript_url="https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/${version}/ghostscript-${formatted_version}.tar.xz"
 }
 
 apt_pkgs() {
@@ -405,13 +405,12 @@ apt_pkgs() {
         $1 alien autoconf autoconf-archive binutils bison build-essential
         cmake curl dbus-x11 flex fontforge git gperf imagemagick intltool
         jq libc6 libcamd2 libcpu-features-dev libdmalloc-dev libdmalloc5
-        libfont-ttf-perl libfontconfig-dev libgc-dev libgc1 libgegl-0.4-0
-        libgegl-common libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgs-dev
-        libheif-dev libhwy-dev libjemalloc-dev libjxl-dev libnotify-bin
-        libpstoedit-dev librust-jpeg-decoder-dev librust-malloc-buf-dev
-        libsharp-dev libticonv-dev libtool libtool-bin libyuv-dev libyuv-utils
-        libyuv0 lsb-release lzip m4 meson nasm ninja-build php-dev pkg-config
-        python3-dev yasm zlib1g-dev
+        libfont-ttf-perl libgc-dev libgc1 libgegl-0.4-0 libgegl-common
+        libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgs-dev libheif-dev
+        libhwy-dev libjxl-dev libnotify-bin libpstoedit-dev librust-jpeg-decoder-dev
+        librust-malloc-buf-dev libsharp-dev libticonv-dev libtool libtool-bin
+        libyuv-dev libyuv-utils libyuv0 lsb-release lzip m4 meson nasm ninja-build
+        php-dev pkg-config python3-dev yasm zlib1g-dev
     )
 
     [[ "$OS" == "Debian" ]] && pkgs+=(libjpeg62-turbo libjpeg62-turbo-dev)
