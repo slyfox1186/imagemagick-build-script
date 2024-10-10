@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
 
-# Script Version: 1.1.3
-# Updated: 09.29.24
+# Script Version: 1.1.4
+# Updated: 10.10.24
 # GitHub: https://github.com/slyfox1186/imagemagick-build-script
 # Purpose: Build ImageMagick 7 from the source code obtained from ImageMagick's official GitHub repository
 # Supported OS: Debian (11|12) | Ubuntu (20|22|24).04
@@ -13,7 +13,7 @@ if [[ "$EUID" -ne 0 ]]; then
 fi
 
 # SET GLOBAL VARIABLES
-script_ver="1.1.3"
+script_ver="1.1.4"
 cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
@@ -73,7 +73,8 @@ $workspace/lib/pkgconfig:\
 $workspace/share/pkgconfig:\
 /usr/local/lib64/pkgconfig:\
 /usr/local/lib/x86_64-linux-gnu/pkgconfig:\
-/usr/local/lib/pkgconfig\
+/usr/local/lib/pkgconfig:\
+/usr/lib/x86_64-linux-gnu/pkgconfig\
 "
 export PKG_CONFIG_PATH
 
@@ -116,8 +117,8 @@ cleanup() {
     read -p "Your choices are (1 or 2): " choice
 
     case "$choice" in
-        1) rm -fr "$cwd" ;;
-        2) ;;
+        [1|y|Y]*) rm -fr "$cwd" ;;
+        [2|n|N]*) ;;
         *) unset choice
            cleanup
            ;;
