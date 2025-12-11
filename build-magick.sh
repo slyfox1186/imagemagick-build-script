@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+!/usr/bin/env bash
 # shellcheck disable=SC2034
 
 # Script Version: 1.1.4
@@ -7,9 +7,9 @@
 # Purpose: Build ImageMagick 7 from the source code obtained from ImageMagick's official GitHub repository
 # Supported OS: Debian (11|12) | Ubuntu (20|22|24).04
 
-if [[ "$EUID" -ne 0 ]]; then
-    echo "This script must be run as root or with sudo."
-    exit 1
+# Check if sudo is available for commands that need root
+if ! command -v sudo &>/dev/null && [[ "$EUID" -ne 0 ]]; then
+    echo "Warning: sudo is not available and you are not root. Some operations may fail."
 fi
 
 # SET GLOBAL VARIABLES
@@ -117,8 +117,8 @@ cleanup() {
     read -p "Your choices are (1 or 2): " choice
 
     case "$choice" in
-        [1|y|Y]*) rm -fr "$cwd" ;;
-        [2|n|N]*) ;;
+        1|y|Y) rm -fr "$cwd" ;;
+        2|n|N) ;;
         *) unset choice
            cleanup
            ;;
@@ -383,7 +383,7 @@ download_fonts() {
         git_caller "$font_url" "$repo_name"
         if build "$repo_name" "$version"; then
             git_clone "$git_url" "$repo_name"
-            execute cp -fr . "/usr/share/fonts/truetype/"
+            execute sudo cp -fr . "/usr/share/fonts/truetype/"
             build_done "$repo_name" "$version"
         fi
     done
@@ -404,11 +404,11 @@ apt_pkgs() {
 
     pkgs=(
         $1 alien autoconf autoconf-archive binutils bison build-essential
-        cmake curl dbus-x11 flex fontforge git gperf imagemagick intltool
+        cmake curl dbus-x11 flex fontforge git gperf intltool
         jq libc6 libcamd2 libcpu-features-dev libdmalloc-dev libdmalloc5
         libfont-ttf-perl libgc-dev libgc1 libgegl-0.4-0 libgegl-common
-        libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgs-dev libheif-dev
-        libhwy-dev libjxl-dev libnotify-bin libpstoedit-dev librust-jpeg-decoder-dev
+        libgl2ps-dev libglib2.0-dev libgs-dev libheif-dev
+        libhwy-dev libjxl-dev libnotify-bin librust-jpeg-decoder-dev
         librust-malloc-buf-dev libsharp-dev libticonv-dev libtool libtool-bin
         libyuv-dev libyuv-utils libyuv0 lsb-release lzip m4 meson nasm ninja-build
         php-dev pkg-config python3-dev yasm zlib1g-dev
@@ -453,9 +453,9 @@ apt_pkgs() {
         log "Installing available missing packages:"
         printf "       %s\n" "${available_packages[@]}"
         echo
-        apt update
-        apt install "${available_packages[@]}"
-        apt -y autoremove
+        sudo apt update
+        sudo apt install "${available_packages[@]}"
+        sudo apt -y autoremove
         echo
     else
         log "No missing packages to install or all missing packages are unavailable."
@@ -463,20 +463,25 @@ apt_pkgs() {
 }
 
 download_autotrace() {
-    if build "autotrace" "0.40.0-20200219"; then
-        curl -fsSLo "$packages/deb-files/autotrace-0.40.0-20200219.deb" "https://github.com/autotrace/autotrace/releases/download/travis-20200219.65/autotrace_0.40.0-20200219_all.deb"
-        cd "$packages/deb-files" || exit 1
-        execute apt -y install ./autotrace-0.40.0-20200219.deb
-        build_done "autotrace" "0.40.0-20200219"
+    if build "autotrace" "travis-20200219.65"; then
+        download "https://github.com/autotrace/autotrace/archive/refs/tags/travis-20200219.65.tar.gz" "autotrace-travis-20200219.65.tar.gz"
+        execute autoreconf -fi
+        execute ./configure --prefix="$workspace" --with-pic
+        execute make "-j$cpu_threads"
+        execute make install
+        build_done "autotrace" "travis-20200219.65"
     fi
+    return 0
 }
 
 set_autotrace() {
     # Enable or disable autotrace
+    local flag=""
     case "$OS" in
         Ubuntu)
-            download_autotrace
-            local flag="true"
+            if download_autotrace; then
+                flag="true"
+            fi
             ;;
     esac
 
@@ -531,36 +536,42 @@ case "$OS" in
         ;;
 esac
 
-# INSTALL OFFICIAL IMAGEMAGICK LIBS
+# INSTALL OFFICIAL IMAGEMAGICK LIBS (optional - skip if version not available)
 find_git_repo "imagemagick/imagemagick" "1" "T"
 if build "magick-libs" "$version"; then
     if [[ ! -d "$packages/deb-files" ]]; then
         mkdir -p "$packages/deb-files"
     fi
     cd "$packages/deb-files" || exit 1
-    if ! curl -LsSo "magick-libs-$version.rpm" "https://imagemagick.org/archive/linux/CentOS/x86_64/ImageMagick-libs-$version.x86_64.rpm"; then
-        fail "Failed to download the magick-libs file. Line: $LINENO"
+    if curl -LsSo "magick-libs-$version.rpm" "https://imagemagick.org/archive/linux/CentOS/x86_64/ImageMagick-libs-$version.x86_64.rpm" 2>/dev/null; then
+        execute sudo alien -d ./*.rpm || warn "alien conversion failed, continuing..."
+        execute sudo dpkg -i ./*.deb || warn "dpkg install failed, continuing..."
+        build_done "magick-libs" "$version"
+    else
+        warn "magick-libs $version not available for download, skipping (will build from source)"
     fi
-    execute alien -d ./*.rpm || fail "[Error] alien -d ./*.rpm Line: $LINENO"
-    execute dpkg -i ./*.deb || fail "[Error] dpkg -i ./*.deb Line: $LINENO"
-    build_done "magick-libs" "$version"
 fi
 
 # INSTALL COMPOSER TO COMPILE GRAPHVIZ
 if [[ ! -f "/usr/bin/composer" ]]; then
+    composer_tmp=$(mktemp -d)
+    cd "$composer_tmp" || fail "Failed to cd to temp directory"
     EXPECTED_CHECKSUM=$(php -r 'copy("https://composer.github.io/installer.sig", "php://stdout");')
     php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
     ACTUAL_CHECKSUM=$(php -r "echo hash_file('sha384', 'composer-setup.php');")
 
     if [[ "$EXPECTED_CHECKSUM" != "$ACTUAL_CHECKSUM" ]]; then
-        >&2 echo "ERROR: Invalid installer checksum"
-        rm "composer-setup.php"
-        return 1
+        warn "Composer checksum mismatch, skipping composer installation"
+        rm -f "composer-setup.php"
+        rm -rf "$composer_tmp"
+    else
+        if ! sudo php composer-setup.php --install-dir="/usr/bin" --filename=composer --quiet; then
+            warn "Failed to install composer, continuing without it"
+        fi
+        rm -f "composer-setup.php"
+        rm -rf "$composer_tmp"
     fi
-    if ! php composer-setup.php --install-dir="/usr/bin" --filename=composer --quiet; then
-        fail "Failed to install composer. Line: $LINENO"
-    fi
-    rm "composer-setup.php"
+    cd "$cwd" || exit 1
 fi
 
 case "$VER" in
@@ -597,7 +608,7 @@ find_git_repo "libsdl-org/libtiff" "1" "T"
 if build "libtiff" "$version"; then
     download "https://codeload.github.com/libsdl-org/libtiff/tar.gz/refs/tags/v$version" "libtiff-$version.tar.gz"
     execute autoreconf -fi
-    execute ./configure --prefix="$workspace" --enable-cxx --with-pic
+    execute ./configure --prefix="$workspace" --enable-cxx --with-pic --disable-docs
     execute make "-j$cpu_threads"
     execute make install
     build_done "libtiff" "$version"
@@ -616,7 +627,7 @@ if build "gperftools" "$version"; then
     build_done "gperftools" "$version"
 fi
 
-git_caller "https://github.com/imageMagick/jpeg-turbo.git" "jpeg-turbo-git"
+git_caller "https://github.com/libjpeg-turbo/libjpeg-turbo.git" "jpeg-turbo-git"
 if build "$repo_name" "${version//\$ /}"; then
     git_clone "$git_url" "$repo_name"
     execute cmake -S . \
@@ -773,7 +784,7 @@ if build "$repo_name" "${version//\$ /}"; then
                         -D privlibexp="$workspace/lib/c2man"
     execute make depend
     execute make "-j$cpu_threads"
-    execute make install
+    execute sudo make install
     build_done "$repo_name" "$version"
 fi
 
@@ -955,11 +966,11 @@ if build "imagemagick" "$version"; then
                          CPPFLAGS="$CPPFLAGS -I$workspace/include/CL -I/usr/include" \
                          PKG_CONFIG="$workspace/bin/pkg-config"
     execute make "-j$cpu_threads"
-    execute make install
+    execute sudo make install
 fi
 
 # LDCONFIG MUST BE RUN NEXT TO UPDATE FILE CHANGES OR THE MAGICK COMMAND WILL NOT WORK
-ldconfig
+sudo ldconfig
 
 # SHOW THE NEWLY INSTALLED MAGICK VERSION
 show_version
