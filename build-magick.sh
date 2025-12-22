@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
+set -o pipefail
 
 # Script Version: 1.1.5
 # Updated: 12.2.25
@@ -59,8 +60,9 @@ export CC CXX CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
 if [[ -f /proc/cpuinfo ]]; then
     cpu_threads=$(grep -c ^processor /proc/cpuinfo)
 else
-    cpu_threads=$(nproc --all)
+    cpu_threads=$(nproc --all 2>/dev/null || true)
 fi
+[[ -z "$cpu_threads" || "$cpu_threads" -lt 1 ]] && cpu_threads=2
 
 # Set the path variable
 PATH="/usr/lib/ccache:$workspace/bin:$PATH"
@@ -103,6 +105,30 @@ warn() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
+use_root() {
+    if [[ "$EUID" -eq 0 ]]; then
+        "$@"
+    elif command -v sudo &>/dev/null; then
+        sudo "$@"
+    else
+        fail "sudo is not available and you are not root. Cannot run: $*"
+    fi
+}
+
+safe_rm_rf() {
+    local target="$1"
+
+    [[ -z "$target" || "$target" == "/" ]] && fail "Refusing to remove unsafe path: \"$target\""
+    [[ -e "$target" ]] || return 0
+
+    case "$target" in
+        "$cwd"|"$cwd"/*) ;;
+        *) fail "Refusing to remove path outside build root: \"$target\"" ;;
+    esac
+
+    use_root rm -rf -- "$target"
+}
+
 cleanup() {
     local choice
 
@@ -118,7 +144,7 @@ cleanup() {
     read -rp "Your choices are (1 or 2): " choice
 
     case "${choice,,}" in
-        1|y|yes) sudo rm -fr "$cwd" ;;
+        1|y|yes) safe_rm_rf "$cwd" ;;
         2|n|no) ;;
         *) unset choice; cleanup ;;
     esac
@@ -177,7 +203,7 @@ download() {
         log "The file \"$archive\" is already downloaded."
     fi
 
-	[[ -d "$target_dir" ]] && sudo rm -rf "$target_dir"
+    [[ -d "$target_dir" ]] && safe_rm_rf "$target_dir"
     [[ ! -d "$target_dir" ]] && mkdir -p "$target_dir"
 
     if [[ -n "$output_dir" ]]; then
@@ -196,65 +222,81 @@ download() {
     cd "$target_dir" || fail "Unable to change the working directory to \"$target_dir\" Line: ${LINENO}"
 }
 
+git_latest_version() {
+    local repo_url="$1"
+    local tag_list="" latest="" head_info=""
+
+    if ! tag_list=$(git ls-remote --tags "$repo_url" 2>/dev/null); then
+        return 1
+    fi
+
+    latest=$(printf '%s\n' "$tag_list" |
+        awk -F'/' '/\/v?[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9]+)?(\^\{\})?$/ {
+            tag = $3;
+            sub(/^v/, "", tag);
+            print tag
+        }' |
+        grep -v '\^{}' |
+        sort -rV |
+        head -n1
+    )
+
+    if [[ -z "$latest" ]]; then
+        if ! head_info=$(git ls-remote "$repo_url" 2>/dev/null); then
+            return 1
+        fi
+        latest=$(printf '%s\n' "$head_info" | awk '/HEAD/ {print substr($1,1,7)}')
+    fi
+
+    [[ -z "$latest" ]] && latest="unknown"
+    printf '%s' "$latest"
+}
+
 git_caller() {
     git_url="$1"
     repo_name="$2"
-    recurse_flag=""
+    recurse_flag=0
 
     [[ "$3" == "recurse" ]] && recurse_flag=1
 
-    version=$(git_clone "$git_url" "$repo_name")
-
-    version="${version//Cloning completed: /}"
+    version=$(git_latest_version "$git_url") || fail "Failed to determine latest version for \"$git_url\". Line: ${LINENO}"
 }
 
 git_clone() {
-	local repo_url repo_name target_directory version
+    local repo_url repo_name target_directory version store_prior_version recurse_opt
+    local recurse="${3:-0}"
+    local version_arg="${4:-}"
+
     repo_url="$1"
     repo_name="${2:-"${1##*/}"}"
     repo_name="${repo_name//\./-}"
     target_directory="$packages/$repo_name"
 
-    # Try to get the latest tag
-    version=$(git ls-remote --tags "$repo_url" |
-              awk -F'/' '/\/v?[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9]+)?(\^\{\})?$/ {
-                  tag = $3;
-                  sub(/^v/, "", tag);
-                  print tag
-              }' |
-              grep -v '\^{}' |
-              sort -rV |
-              head -n1
-         )
-
-    # If no tags are found, use the latest commit hash as the version
-    if [[ -z "$version" ]]; then
-        version=$(git ls-remote "$repo_url" |
-                  grep "HEAD" |
-                  awk '{print substr($1,1,7)}'
-             )
-        [[ -z "$version" ]] && version="unknown"
+    if [[ -n "$version_arg" ]]; then
+        version="$version_arg"
+    else
+        version=$(git_latest_version "$repo_url") || fail "Failed to determine latest version for \"$repo_url\". Line: ${LINENO}"
     fi
 
-    [[ -f "$packages/$repo_name.done" ]] && store_prior_version=$(cat "$packages/$repo_name.done")
+    [[ -f "$packages/$repo_name.done" ]] && store_prior_version=$(<"$packages/$repo_name.done")
 
     if [[ ! "$version" == "$store_prior_version" ]]; then
-        [[ "$recurse_flag" -eq 1 ]] && recurse="--recursive"
-        [[ -d "$target_directory" ]] && sudo rm -fr "$target_directory"
+        [[ "$recurse" -eq 1 ]] && recurse_opt="--recursive"
+        [[ -d "$target_directory" ]] && safe_rm_rf "$target_directory"
         # Clone the repository
-        if ! git clone --depth 1 ${recurse:+"$recurse"} -q "$repo_url" "$target_directory"; then
+        if ! git clone --depth 1 ${recurse_opt:+"$recurse_opt"} -q "$repo_url" "$target_directory"; then
             echo
             echo -e "${RED}[ERROR]${NC} Failed to clone \"$target_directory\". Second attempt in 10 seconds..."
             echo
             sleep 10
-            if ! git clone --depth 1 ${recurse:+"$recurse"} -q "$repo_url" "$target_directory"; then
+            if ! git clone --depth 1 ${recurse_opt:+"$recurse_opt"} -q "$repo_url" "$target_directory"; then
                 fail "Failed to clone \"$target_directory\". Exiting script. Line: ${LINENO}"
             fi
         fi
         cd "$target_directory" || fail "Failed to cd into \"$target_directory\". Line: ${LINENO}"
     fi
 
-    echo "Cloning completed: $version"
+    log "Cloning completed: $version"
     return 0
 }
 
@@ -272,11 +314,11 @@ gnu_repo() {
 }
 
 github_repo() {
-    local count git_repo git_url version
+    local count git_repo git_url
     git_repo="$1"
     git_url="$2"
     count=1
-    version=""dd
+    version=""
 
     # Fetch GitHub tags page
     while [[ $count -le 10 ]]; do
@@ -298,7 +340,7 @@ github_repo() {
 }
 
 gitlab_freedesktop_repo() {
-    local count repo version
+    local count repo curl_results
     repo="$1"
     count=0
     version=""
@@ -321,7 +363,7 @@ gitlab_freedesktop_repo() {
 }
 
 gitlab_gnome_repo() {
-    local count repo url
+    local count repo url curl_results
     repo="$1"
     url="$2"
     count=0
@@ -347,6 +389,7 @@ find_git_repo() {
     local url="$1"
     local git_repo_type="$2"
     local url_action="$3"
+    local set_repo set_action
 
     case "$git_repo_type" in
         1) set_repo="github_repo" ;;
@@ -364,7 +407,7 @@ find_git_repo() {
 }
 
 download_fonts() {
-    font_urls=(
+    local -a font_urls=(
         "https://github.com/dejavu-fonts/dejavu-fonts.git"
         "https://github.com/adobe-fonts/source-code-pro.git"
         "https://github.com/adobe-fonts/source-sans-pro.git"
@@ -372,13 +415,14 @@ download_fonts() {
         "https://github.com/googlefonts/roboto.git"
         "https://github.com/mozilla/Fira.git"
     )
+    local font_url repo_name
     for font_url in "${font_urls[@]}"; do
         repo_name="${font_url##*/}"
         repo_name="${repo_name%.git}"
         git_caller "$font_url" "$repo_name"
         if build "$repo_name" "$version"; then
-            git_clone "$git_url" "$repo_name"
-            execute sudo cp -fr . "/usr/share/fonts/truetype/"
+            git_clone "$git_url" "$repo_name" "$recurse_flag" "$version"
+            execute use_root cp -fr . "/usr/share/fonts/truetype/"
             build_done "$repo_name" "$version"
         fi
     done
@@ -394,13 +438,15 @@ find_ghostscript_version() {
 }
 
 apt_pkgs() {
-    local pkg missing_packages
+    local pkg
     local -a pkgs=() extra_pkgs=("$@")
+    local -a missing_packages=() available_packages=() unavailable_packages=()
 
     pkgs=(
         "${extra_pkgs[@]}" alien autoconf autoconf-archive
         binutils bison build-essential cmake curl dbus-x11
         flex fontforge git gperf intltool jq libc6
+        libx11-dev libxext-dev libxt-dev
         libcpu-features-dev libdmalloc-dev libdmalloc5
         libfont-ttf-perl libgc-dev libgc1 libgegl-common
         libgl2ps-dev libglib2.0-dev libgs-dev libheif-dev
@@ -413,11 +459,6 @@ apt_pkgs() {
 
     [[ "$OS" == "Debian" ]] && pkgs+=(libjpeg62-turbo libjpeg62-turbo-dev)
     [[ "$OS" == "Ubuntu" ]] && pkgs+=(libjpeg62 libjpeg62-dev)
-
-    # Initialize arrays for missing, available, and unavailable packages
-    missing_packages=()
-    available_packages=()
-    unavailable_packages=()
 
     log "Checking package installation status..."
 
@@ -450,9 +491,9 @@ apt_pkgs() {
         log "Installing available missing packages:"
         printf "       %s\n" "${available_packages[@]}"
         echo
-        sudo apt update
-        sudo apt install "${available_packages[@]}"
-        sudo apt -y autoremove
+        use_root apt update || fail "apt update failed. Line: ${LINENO}"
+        use_root apt install -y "${available_packages[@]}" || fail "apt install failed. Line: ${LINENO}"
+        use_root apt -y autoremove || warn "apt autoremove failed, continuing..."
         echo
     else
         log "No missing packages to install or all missing packages are unavailable."
@@ -466,7 +507,7 @@ apt_pkgs() {
     echo "=========================================="
 
 debian_version() {
-    case "$VER" in
+    case "$VER_MAJOR" in
         11) apt_pkgs libvmmalloc1 libvmmalloc-dev libgegl-0.4-0 libcamd2 ;;
         12) apt_pkgs libgegl-0.4-0 libcamd2 ;;
         13) apt_pkgs libgegl-0.4-0t64 libcamd3 ;;
@@ -480,7 +521,12 @@ get_os_version() {
         VER=$(lsb_release -sr)
     elif [[ -f /etc/os-release ]]; then
         source /etc/os-release
-        OS="$NAME"
+        case "$ID" in
+            debian) OS="Debian" ;;
+            ubuntu) OS="Ubuntu" ;;
+            arch) OS="Arch" ;;
+            *) OS="${NAME:-$ID}" ;;
+        esac
         VER="$VERSION_ID"
     else
         fail "Failed to define the \$OS and/or \$VER variables. Line: ${LINENO}"
@@ -489,6 +535,7 @@ get_os_version() {
 
 # GET THE OS NAME
 get_os_version
+VER_MAJOR="${VER%%.*}"
 
 # DISCOVER WHAT VERSION OF LINUX WE ARE RUNNING (DEBIAN OR UBUNTU)
 case "$OS" in
@@ -504,8 +551,8 @@ if build "magick-libs" "$version"; then
     [[ ! -d "$packages/deb-files" ]] && mkdir -p "$packages/deb-files"
     cd "$packages/deb-files" || exit 1
     if curl -LSso "magick-libs-$version.rpm" "https://imagemagick.org/archive/linux/CentOS/x86_64/ImageMagick-libs-$version.x86_64.rpm" 2>/dev/null; then
-        execute sudo alien -d ./*.rpm || warn "alien conversion failed, continuing..."
-        execute sudo dpkg -i ./*.deb || warn "dpkg install failed, continuing..."
+        execute use_root alien -d ./*.rpm || warn "alien conversion failed, continuing..."
+        execute use_root dpkg --force-overwrite -i ./*.deb || warn "dpkg install failed, continuing..."
         build_done "magick-libs" "$version"
     else
         warn "magick-libs $version not available for download, skipping (will build from source)"
@@ -525,7 +572,7 @@ if [[ ! -f "/usr/bin/composer" ]]; then
         rm -f "composer-setup.php"
         rm -rf "$composer_tmp"
     else
-        if ! sudo php composer-setup.php --install-dir=/usr/bin --filename=composer --quiet; then
+        if ! use_root php composer-setup.php --install-dir=/usr/bin --filename=composer --quiet; then
             warn "Failed to install composer, continuing without it"
         fi
         rm -rf "$composer_tmp" composer-setup.php
@@ -533,13 +580,16 @@ if [[ ! -f "/usr/bin/composer" ]]; then
     cd "$cwd" || exit 1
 fi
 
-case "$VER" in
-    22.04) version=2.4.6 ;;
-    12|13|24.04) version=2.4.7 ;;
+case "$OS:$VER_MAJOR" in
+    Ubuntu:22) version=2.4.6 ;;
+    Ubuntu:24) version=2.4.7 ;;
+    Debian:11) version=2.4.6 ;;
+    Debian:12|Debian:13) version=2.4.7 ;;
+    *) fail "Unsupported OS version for libtool: $OS $VER. Line: ${LINENO}" ;;
 esac
 if build "libtool" "$version"; then
     download "https://ftp.gnu.org/gnu/libtool/libtool-$version.tar.xz"
-    execute ./configure --prefix="$workspace" \
+    execute sh ./configure --prefix="$workspace" \
                         --with-pic \
                         M4="$workspace/bin/m4"
     execute make "-j$cpu_threads"
@@ -551,7 +601,7 @@ gnu_repo "https://pkgconfig.freedesktop.org/releases/"
 if build "pkg-config" "$version"; then
     download "https://pkgconfig.freedesktop.org/releases/pkg-config-$version.tar.gz"
     execute autoconf
-    execute ./configure --prefix="$workspace" \
+    execute sh ./configure --prefix="$workspace" \
                         --with-internal-glib \
                         --with-pc-path="$PKG_CONFIG_PATH" \
                         CFLAGS="-I$workspace/include" \
@@ -565,7 +615,7 @@ find_git_repo "libsdl-org/libtiff" "1" "T"
 if build "libtiff" "$version"; then
     download "https://codeload.github.com/libsdl-org/libtiff/tar.gz/refs/tags/v$version" "libtiff-$version.tar.gz"
     execute autoreconf -fi
-    execute ./configure --prefix="$workspace" \
+    execute sh ./configure --prefix="$workspace" \
                         --enable-cxx \
                         --disable-docs \
                         --with-pic
@@ -578,13 +628,14 @@ find_git_repo "gperftools/gperftools" "1" "T"
 version="${version#gperftools-}"
 if build "gperftools" "$version"; then
     download "https://github.com/gperftools/gperftools/releases/download/gperftools-$version/gperftools-$version.tar.gz" "gperftools-$version.tar.bz2"
-    CFLAGS+=" -DNOLIBTOOL"
+    gperftools_cflags="$CFLAGS -DNOLIBTOOL"
     execute autoreconf -fi
     [[ ! -d build ]] && mkdir build
     cd build || exit 1
-    execute ../configure --prefix="$workspace" \
+    execute sh ../configure --prefix="$workspace" \
                          --with-pic \
-                         --with-tcmalloc-pagesize=256
+                         --with-tcmalloc-pagesize=256 \
+                         CFLAGS="$gperftools_cflags"
     execute make "-j$cpu_threads"
     execute make install
     build_done "gperftools" "$version"
@@ -592,11 +643,12 @@ fi
 
 git_caller "https://github.com/libjpeg-turbo/libjpeg-turbo.git" "jpeg-turbo-git"
 if build "$repo_name" "${version//\$ /}"; then
-    git_clone "$git_url" "$repo_name"
+    git_clone "$git_url" "$repo_name" "$recurse_flag" "$version"
     execute cmake -S . \
                   -DCMAKE_INSTALL_PREFIX="$workspace" \
                   -DCMAKE_BUILD_TYPE=Release \
-                  -DENABLE_{SHARED,STATIC}=ON \
+                  -DENABLE_STATIC=ON \
+                  -DENABLE_SHARED=OFF \
                   -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads"
     execute ninja install
@@ -605,9 +657,9 @@ fi
 
 git_caller "https://github.com/imageMagick/libfpx.git" "libfpx-git"
 if build "$repo_name" "$version"; then
-    git_clone "$git_url" "$repo_name"
+    git_clone "$git_url" "$repo_name" "$recurse_flag" "$version"
     execute autoreconf -fi
-    execute ./configure --prefix="$workspace" --with-pic
+    execute sh ./configure --prefix="$workspace" --with-pic
     execute make "-j$cpu_threads"
     execute make install
     build_done "$repo_name" "$version"
@@ -617,8 +669,8 @@ find_git_repo "ArtifexSoftware/ghostpdl-downloads" "1" "T"
 find_ghostscript_version "$version"
 if build "ghostscript" "$version"; then
     download "$gscript_url" "ghostscript-$version.tar.xz"
-    execute ./autogen.sh
-    execute ./configure --prefix="$workspace" \
+    execute sh ./autogen.sh
+    execute sh ./configure --prefix="$workspace" \
                         --with-libiconv=native
     execute make "-j$cpu_threads"
     execute make install
@@ -629,7 +681,7 @@ find_git_repo "pnggroup/libpng" "1" "T"
 if build "libpng" "$version"; then
     download "https://github.com/pnggroup/libpng/archive/refs/tags/v$version.tar.gz" "libpng-$version.tar.gz"
     execute autoreconf -fi
-    execute ./configure --prefix="$workspace" \
+    execute sh ./configure --prefix="$workspace" \
                         --enable-hardware-optimizations=yes \
                         --with-pic
     execute make "-j$cpu_threads"
@@ -642,7 +694,7 @@ if [[ "$OS" == "Ubuntu" ]]; then
     if build "libpng12" "$version"; then
         download "https://github.com/pnggroup/libpng/archive/refs/tags/v$version.tar.gz" "libpng12-$version.tar.gz"
         execute autoreconf -fi
-        execute ./configure --prefix="$workspace" --with-pic
+        execute sh ./configure --prefix="$workspace" --with-pic
         execute make "-j$cpu_threads"
         execute make install
         execute rm "$workspace/include/png.h"
@@ -652,7 +704,7 @@ fi
 
 git_caller "https://chromium.googlesource.com/webm/libwebp" "libwebp-git"
 if build "$repo_name" "${version//\$ /}"; then
-    git_clone "$git_url" "$repo_name"
+    git_clone "$git_url" "$repo_name" "$recurse_flag" "$version"
     execute autoreconf -fi
     execute cmake -B build \
                   -DCMAKE_INSTALL_PREFIX="$workspace" \
@@ -675,7 +727,7 @@ version1="${version//-/.}"
 if build "freetype" "$version1"; then
     download "https://gitlab.freedesktop.org/freetype/freetype/-/archive/VER-$version/freetype-VER-$version.tar.bz2" "freetype-$version1.tar.bz2"
     extracmds=("-D"{harfbuzz,png,bzip2,brotli,zlib,tests}"=disabled")
-    execute ./autogen.sh
+    execute sh ./autogen.sh
     execute meson setup build --prefix="$workspace" \
                               --buildtype=release \
                               --default-library=static \
@@ -697,7 +749,7 @@ if build "libxml2" "$version"; then
         PYTHON_LIBS=$(python3.12-config --ldflags)
     fi
     export PYTHON_CFLAGS PYTHON_LIBS
-    execute ./autogen.sh
+    execute sh ./autogen.sh
     execute cmake -B build -DCMAKE_INSTALL_PREFIX="$workspace" \
                            -DCMAKE_BUILD_TYPE=Release \
                            -DBUILD_SHARED_LIBS=OFF \
@@ -712,14 +764,14 @@ if build "fontconfig" "$version"; then
     download "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/$version/fontconfig-$version.tar.bz2"
     
     # Explicitly add paths for zlib and lzma, and link them
-    LDFLAGS+=" -DLIBXML_STATIC -L/usr/lib/x86_64-linux-gnu -lz -llzma"
-    CFLAGS+=" -I/usr/include -I/usr/include/libxml2"
+    fontconfig_ldflags="$LDFLAGS -DLIBXML_STATIC -L/usr/lib/x86_64-linux-gnu -lz -llzma"
+    fontconfig_cflags="$CFLAGS -I/usr/include -I/usr/include/libxml2"
 
     # Update the pkg-config file to include LIBXML_STATIC
     sed -i "s|Cflags:|& -DLIBXML_STATIC|" "fontconfig.pc.in"
     
-    execute ./autogen.sh --noconf
-    execute ./configure --prefix="$workspace" \
+    execute sh ./autogen.sh --noconf
+    execute sh ./configure --prefix="$workspace" \
                         --disable-docbook \
                         --disable-docs \
                         --disable-shared \
@@ -730,35 +782,20 @@ if build "fontconfig" "$version"; then
                         --with-arch="$(uname -m)" \
                         --with-libiconv-prefix=/usr \
                         --with-pic \
-                        CFLAGS="$CFLAGS" \
-                        LDFLAGS="$LDFLAGS"
+                        CFLAGS="$fontconfig_cflags" \
+                        LDFLAGS="$fontconfig_ldflags"
     
     execute make "-j$cpu_threads"
     execute make install
     build_done "fontconfig" "$version"
 fi
 
-git_caller "https://github.com/fribidi/c2man.git" "c2man-git"
-if build "$repo_name" "${version//\$ /}"; then
-    git_clone "$git_url" "$repo_name"
-    execute ./Configure -desO \
-                        -D bin="$workspace/bin" \
-                        -D cc="/usr/bin/cc" \
-                        -D d_gnu="/usr/lib/x86_64-linux-gnu" \
-                        -D gcc="/usr/bin/gcc" \
-                        -D installmansrc="$workspace/share/man" \
-                        -D ldflags="$LDFLAGS" \
-                        -D libpth="/usr/lib64 /usr/lib /lib64 /lib" \
-                        -D locincpth="$workspace/include /usr/local/include" \
-                        -D loclibpth="$workspace/lib /usr/local/lib64 /usr/local/lib" \
-                        -D osname="$OS" \
-                        -D prefix="$workspace" \
-                        -D privlib="$workspace/lib/c2man" \
-                        -D privlibexp="$workspace/lib/c2man"
-    execute make depend
-    execute make "-j$cpu_threads"
-    execute sudo make install
-    build_done "$repo_name" "$version"
+# c2man is optional - it's an old tool for generating man pages from C comments
+# Skip it as it has compatibility issues with modern systems
+if command -v c2man &>/dev/null; then
+    log "c2man already available, skipping build"
+else
+    warn "c2man not available, skipping (optional - used for man page generation)"
 fi
 
 find_git_repo "fribidi/fribidi" "1" "T"
@@ -807,8 +844,8 @@ fi
 find_git_repo "jemalloc/jemalloc" "1" "T"
 if build "jemalloc" "$version"; then
     download "https://github.com/jemalloc/jemalloc/archive/refs/tags/$version.tar.gz" "jemalloc-$version.tar.gz"
-    execute ./autogen.sh
-    execute ./configure --prefix="$workspace" \
+    execute sh ./autogen.sh
+    execute sh ./configure --prefix="$workspace" \
                         --disable-debug \
                         --disable-doc \
                         --disable-fill \
@@ -826,20 +863,20 @@ fi
 
 git_caller "https://github.com/KhronosGroup/OpenCL-SDK.git" "opencl-sdk-git" "recurse"
 if build "$repo_name" "${version//\$ /}"; then
-    git_clone "$git_url" "$repo_name"
+    git_clone "$git_url" "$repo_name" "$recurse_flag" "$version"
     execute cmake \
             -S . \
             -B build \
             -DCMAKE_INSTALL_PREFIX="$workspace" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POSITION_INDEPENDENT_CODE=true \
-            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_{DOCS,EXAMPLES,TESTING}=OFF \
             -DOPENCL_SDK_{BUILD_SAMPLES,TEST_SAMPLES}=OFF \
             -DCMAKE_C_FLAGS="$CFLAGS" \
             -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
             -DOPENCL_HEADERS_BUILD_CXX_TESTS=OFF \
-            -DOPENCL_ICD_LOADER_BUILD_SHARED_LIBS=ON \
+            -DOPENCL_ICD_LOADER_BUILD_SHARED_LIBS=OFF \
             -DOPENCL_SDK_BUILD_{OPENGL_SAMPLES,SAMPLES}=OFF \
             -DOPENCL_SDK_TEST_SAMPLES=OFF \
             -DTHREADS_PREFER_PTHREAD_FLAG=ON \
@@ -857,8 +894,8 @@ if build "openjpeg" "$version"; then
                   -DCMAKE_INSTALL_PREFIX="$workspace" \
                   -DCMAKE_BUILD_TYPE=Release \
                   -DCMAKE_POSITION_INDEPENDENT_CODE=true \
-                  -DBUILD_{SHARED_LIBS,THIRDPARTY}=ON \
-                  -DBUILD_TESTING=OFF \
+                  -DBUILD_{SHARED_LIBS,TESTING}=OFF \
+                  -DBUILD_THIRDPARTY=ON \
                   -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
@@ -869,8 +906,8 @@ find_git_repo "mm2/Little-CMS" "1" "T"
 version="${version//lcms/}"
 if build "lcms2" "$version"; then
     download "https://github.com/mm2/Little-CMS/archive/refs/tags/lcms$version.tar.gz" "lcms2-$version.tar.gz"
-    execute ./autogen.sh
-    execute ./configure --prefix="$workspace" --with-pic --with-threaded
+    execute sh ./autogen.sh
+    execute sh ./configure --prefix="$workspace" --with-pic --with-threaded
     execute make "-j$cpu_threads"
     execute make install
     build_done "lcms2" "$version"
@@ -901,7 +938,7 @@ if build "imagemagick" "$version"; then
     execute autoreconf -fi
     [[ ! -d build ]] && mkdir build
     cd build || exit 1
-    execute ../configure --prefix=/usr/local \
+    execute sh ../configure --prefix=/usr/local \
                          --enable-ccmalloc \
                          --enable-delegate-build \
                          --enable-hdri \
@@ -933,11 +970,11 @@ if build "imagemagick" "$version"; then
                          CPPFLAGS="$CPPFLAGS -I$workspace/include/CL" \
                          PKG_CONFIG="$workspace/bin/pkg-config"
     execute make "-j$cpu_threads"
-    execute sudo make install
+    execute use_root make install
 fi
 
 # LDCONFIG MUST BE RUN NEXT TO UPDATE FILE CHANGES OR THE MAGICK COMMAND WILL NOT WORK
-sudo ldconfig
+use_root ldconfig
 
 # SHOW THE NEWLY INSTALLED MAGICK VERSION
 show_version
@@ -946,4 +983,4 @@ show_version
 cleanup
 
 # SHOW EXIT MESSAGE
-exit_fngit_url
+exit_fn
