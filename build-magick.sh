@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034
 
-# Script Version: 1.1.4
-# Updated: 10.10.24
+# Script Version: 1.1.5
+# Updated: 12.2.25
 # GitHub: https://github.com/slyfox1186/imagemagick-build-script
 # Purpose: Build ImageMagick 7 from the source code obtained from ImageMagick's official GitHub repository
-# Supported OS: Debian (11|12) | Ubuntu (20|22|24).04
+# Supported OS: Debian (12|13) | Ubuntu (20|22|24).04
 
 # Check if sudo is available for commands that need root
 if ! command -v sudo &>/dev/null && [[ "$EUID" -ne 0 ]]; then
@@ -13,7 +13,7 @@ if ! command -v sudo &>/dev/null && [[ "$EUID" -ne 0 ]]; then
 fi
 
 # SET GLOBAL VARIABLES
-script_ver="1.1.4"
+script_ver="1.1.5"
 cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
