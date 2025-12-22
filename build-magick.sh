@@ -13,7 +13,7 @@ if ! command -v sudo &>/dev/null && [[ "$EUID" -ne 0 ]]; then
 fi
 
 # SET GLOBAL VARIABLES
-script_ver="1.1.5"
+script_ver=1.1.5
 cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
@@ -43,7 +43,8 @@ box_out_banner_header() {
 box_out_banner_header "ImageMagick Build Script v$script_ver"
 
 # CREATE OUTPUT DIRECTORIES
-mkdir -p "$packages" "$workspace"
+[[ ! -d "$packages" ]] && mkdir -p "$packages"
+[[ ! -d "$workspace" ]] && mkdir -p "$workspace"
 
 # SET THE COMPILERS TO USE AND THE COMPILER OPTIMIZATION FLAGS
 CC="gcc"
@@ -117,20 +118,10 @@ cleanup() {
     read -rp "Your choices are (1 or 2): " choice
 
     case "${choice,,}" in
-        1|y|yes) rm -fr "$cwd" ;;
+        1|y|yes) sudo rm -fr "$cwd" ;;
         2|n|no) ;;
-        *) unset choice
-           cleanup
-           ;;
+        *) unset choice; cleanup ;;
     esac
-}
-
-set_high_end_cpu() {
-    local random_dir
-    random_dir=$(mktemp -d)
-    wget -cqO "$random_dir/high-end-cpu-policy.sh" "https://raw.githubusercontent.com/slyfox1186/imagemagick-build-script/main/high-end-cpu-policy.sh"
-    bash "$random_dir/high-end-cpu-policy.sh"
-    rm -fr "$random_dir"
 }
 
 execute() {
@@ -146,7 +137,7 @@ execute() {
         if ! output=$("$@" 2>&1); then
             notify-send -t 5000 "Failed to execute: $*" 2>/dev/null
             echo "$output" >&2
-            fail "Failed to execute: $*. Line: $LINENO"
+            fail "Failed to execute: $*. Line: ${LINENO}"
         fi
     fi
 }
@@ -170,38 +161,39 @@ build_done() {
 }
 
 download() {
-    local url="$1"
-    local archive="${2:-${url##*/}}"
-    local output_dir="$3"
-    local target_file="$packages/$archive"
-    local target_dir="$packages/${output_dir:-${archive%.tar*}}"
+    local archive url output_dir target_file target_dir
+    url="$1"
+    archive="${2:-${url##*/}}"
+    output_dir="$3"
+    target_file="$packages/$archive"
+    target_dir="$packages/${output_dir:-${archive%.tar*}}"
 
     if [[ ! -f "$target_file" ]]; then
         log "Downloading \"$url\" saving as \"$archive\""
         if ! curl -fLSso "$target_file" "$url"; then
-            fail "Failed to download \"$archive\". Line: $LINENO"
+            fail "Failed to download \"$archive\". Line: ${LINENO}"
         fi
     else
         log "The file \"$archive\" is already downloaded."
     fi
 
-    rm -rf "$target_dir"
-    mkdir -p "$target_dir"
+	[[ -d "$target_dir" ]] && sudo rm -rf "$target_dir"
+    [[ ! -d "$target_dir" ]] && mkdir -p "$target_dir"
 
     if [[ -n "$output_dir" ]]; then
         if ! tar -xf "$target_file" -C "$target_dir" 2>/dev/null; then
             rm "$target_file"
-            fail "Failed to extract \"$archive\". Line: $LINENO"
+            fail "Failed to extract \"$archive\". Line: ${LINENO}"
         fi
     else
         if ! tar -xf "$target_file" -C "$target_dir" --strip-components=1 2>/dev/null; then
             rm "$target_file"
-            fail "Failed to extract \"$archive\". Line: $LINENO"
+            fail "Failed to extract \"$archive\". Line: ${LINENO}"
         fi
     fi
 
     log "File extracted: $archive"
-    cd "$target_dir" || fail "Unable to change the working directory to \"$target_dir\" Line: $LINENO"
+    cd "$target_dir" || fail "Unable to change the working directory to \"$target_dir\" Line: ${LINENO}"
 }
 
 git_caller() {
@@ -217,11 +209,11 @@ git_caller() {
 }
 
 git_clone() {
-    local repo_url="$1"
-    local repo_name="${2:-"${1##*/}"}"
-    local repo_name="${repo_name//\./-}"
-    local target_directory="$packages/$repo_name"
-    local version
+	local repo_url repo_name target_directory version
+    repo_url="$1"
+    repo_name="${2:-"${1##*/}"}"
+    repo_name="${repo_name//\./-}"
+    target_directory="$packages/$repo_name"
 
     # Try to get the latest tag
     version=$(git ls-remote --tags "$repo_url" |
@@ -248,7 +240,7 @@ git_clone() {
 
     if [[ ! "$version" == "$store_prior_version" ]]; then
         [[ "$recurse_flag" -eq 1 ]] && recurse="--recursive"
-        [[ -d "$target_directory" ]] && rm -fr "$target_directory"
+        [[ -d "$target_directory" ]] && sudo rm -fr "$target_directory"
         # Clone the repository
         if ! git clone --depth 1 ${recurse:+"$recurse"} -q "$repo_url" "$target_directory"; then
             echo
@@ -256,10 +248,10 @@ git_clone() {
             echo
             sleep 10
             if ! git clone --depth 1 ${recurse:+"$recurse"} -q "$repo_url" "$target_directory"; then
-                fail "Failed to clone \"$target_directory\". Exiting script. Line: $LINENO"
+                fail "Failed to clone \"$target_directory\". Exiting script. Line: ${LINENO}"
             fi
         fi
-        cd "$target_directory" || fail "Failed to cd into \"$target_directory\". Line: $LINENO"
+        cd "$target_directory" || fail "Failed to cd into \"$target_directory\". Line: ${LINENO}"
     fi
 
     echo "Cloning completed: $version"
@@ -270,7 +262,7 @@ show_version() {
     echo
     log "ImageMagick's new version is:"
     echo
-    magick -version 2>/dev/null || fail "Failure to execute the command: magick -version. Line: $LINENO"
+    magick -version 2>/dev/null || fail "Failure to execute the command: magick -version. Line: ${LINENO}"
 }
 
 # Parse each git repository to find the latest release version number for each program
@@ -280,10 +272,11 @@ gnu_repo() {
 }
 
 github_repo() {
-    local count=1
-    local git_repo="$1"
-    local git_url="$2"
-    version=""
+    local count git_repo git_url version
+    git_repo="$1"
+    git_url="$2"
+    count=1
+    version=""dd
 
     # Fetch GitHub tags page
     while [[ $count -le 10 ]]; do
@@ -301,11 +294,11 @@ github_repo() {
         fi
     done
     # Handle cases where only release candidate versions are found after the script reaches the maximum attempts
-    [[ -z "$version" ]] && fail "No matching version found without RC/rc suffix. Line: $LINENO"
+    [[ -z "$version" ]] && fail "No matching version found without RC/rc suffix. Line: ${LINENO}"
 }
 
 gitlab_freedesktop_repo() {
-    local count repo
+    local count repo version
     repo="$1"
     count=0
     version=""
@@ -322,7 +315,7 @@ gitlab_freedesktop_repo() {
                 break # Exit the loop when a non-RC version is found
             fi
         else
-            fail "Failed to fetch data from GitLab API. Line: $LINENO"
+            fail "Failed to fetch data from GitLab API. Line: ${LINENO}"
         fi
     done
 }
@@ -334,7 +327,7 @@ gitlab_gnome_repo() {
     count=0
     version=""
 
-    [[ -z "$repo" ]] && fail "Repository name is required. Line: $LINENO"
+    [[ -z "$repo" ]] && fail "Repository name is required. Line: ${LINENO}"
 
     if curl_results=$(curl -fsSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url"); then
         version=$(echo "$curl_results" | jq -r '.[0].name')
@@ -359,7 +352,7 @@ find_git_repo() {
         1) set_repo="github_repo" ;;
         2) set_repo="gitlab_freedesktop_repo" ;;
         3) set_repo="gitlab_gnome_repo" ;;
-        *) fail "Error: Could not detect the variable \"\$git_repo_type\" in the function \"find_git_repo\". Line: $LINENO"
+        *) fail "Error: Could not detect the variable \"\$git_repo_type\" in the function \"find_git_repo\". Line: ${LINENO}"
     esac
 
     case "$url_action" in
@@ -405,16 +398,17 @@ apt_pkgs() {
     local -a pkgs=() extra_pkgs=("$@")
 
     pkgs=(
-        "${extra_pkgs[@]}"
-        alien autoconf autoconf-archive binutils bison build-essential
-        cmake curl dbus-x11 flex fontforge git gperf intltool
-        jq libc6 libcamd2 libcpu-features-dev libdmalloc-dev libdmalloc5
-        libfont-ttf-perl libgc-dev libgc1 libgegl-0.4-0 libgegl-common
+        "${extra_pkgs[@]}" alien autoconf autoconf-archive
+        binutils bison build-essential cmake curl dbus-x11
+        flex fontforge git gperf intltool jq libc6
+        libcpu-features-dev libdmalloc-dev libdmalloc5
+        libfont-ttf-perl libgc-dev libgc1 libgegl-common
         libgl2ps-dev libglib2.0-dev libgs-dev libheif-dev
         libhwy-dev libjxl-dev libnotify-bin librust-jpeg-decoder-dev
-        librust-malloc-buf-dev libsharp-dev libticonv-dev libtool libtool-bin
-        libyuv-dev libyuv-utils libyuv0 lsb-release lzip m4 meson nasm ninja-build
-        php-dev pkg-config python3-dev yasm zlib1g-dev
+        librust-malloc-buf-dev libsharp-dev libticonv-dev
+        libtool libtool-bin libyuv-dev libyuv-utils libyuv0
+        lsb-release lzip m4 meson nasm ninja-build php-dev
+        pkg-config python3-dev yasm zlib1g-dev
     )
 
     [[ "$OS" == "Debian" ]] && pkgs+=(libjpeg62-turbo libjpeg62-turbo-dev)
@@ -473,9 +467,10 @@ apt_pkgs() {
 
 debian_version() {
     case "$VER" in
-        11) apt_pkgs libvmmalloc1 libvmmalloc-dev ;;
-        12) apt_pkgs ;;
-        *)  fail "Could not detect the Debian version. Line: $LINENO" ;;
+        11) apt_pkgs libvmmalloc1 libvmmalloc-dev libgegl-0.4-0 libcamd2 ;;
+        12) apt_pkgs libgegl-0.4-0 libcamd2 ;;
+        13) apt_pkgs libgegl-0.4-0t64 libcamd3 ;;
+        *)  fail "Could not detect the Debian version '$VER'. Supported: 11, 12, 13. Line: ${LINENO}" ;;
     esac
 }
 
@@ -485,10 +480,10 @@ get_os_version() {
         VER=$(lsb_release -sr)
     elif [[ -f /etc/os-release ]]; then
         source /etc/os-release
-        OS=$NAME
-        VER=$VERSION_ID
+        OS="$NAME"
+        VER="$VERSION_ID"
     else
-        fail "Failed to define the \$OS and/or \$VER variables. Line: $LINENO"
+        fail "Failed to define the \$OS and/or \$VER variables. Line: ${LINENO}"
     fi
 }
 
@@ -497,27 +492,18 @@ get_os_version
 
 # DISCOVER WHAT VERSION OF LINUX WE ARE RUNNING (DEBIAN OR UBUNTU)
 case "$OS" in
-    Arch)
-        ;;
-    Debian)
-        debian_version
-        ;;
-    Ubuntu)
-        apt_pkgs
-        ;;
-    *)
-        fail "Could not detect the OS architecture. Line: $LINENO"
-        ;;
+    Arch) ;;
+    Debian) debian_version ;;
+    Ubuntu) apt_pkgs ;;
+    *) fail "Could not detect the OS architecture. Line: ${LINENO}" ;;
 esac
 
 # INSTALL OFFICIAL IMAGEMAGICK LIBS (optional - skip if version not available)
 find_git_repo "imagemagick/imagemagick" "1" "T"
 if build "magick-libs" "$version"; then
-    if [[ ! -d "$packages/deb-files" ]]; then
-        mkdir -p "$packages/deb-files"
-    fi
+    [[ ! -d "$packages/deb-files" ]] && mkdir -p "$packages/deb-files"
     cd "$packages/deb-files" || exit 1
-    if curl -LsSo "magick-libs-$version.rpm" "https://imagemagick.org/archive/linux/CentOS/x86_64/ImageMagick-libs-$version.x86_64.rpm" 2>/dev/null; then
+    if curl -LSso "magick-libs-$version.rpm" "https://imagemagick.org/archive/linux/CentOS/x86_64/ImageMagick-libs-$version.x86_64.rpm" 2>/dev/null; then
         execute sudo alien -d ./*.rpm || warn "alien conversion failed, continuing..."
         execute sudo dpkg -i ./*.deb || warn "dpkg install failed, continuing..."
         build_done "magick-libs" "$version"
@@ -539,26 +525,23 @@ if [[ ! -f "/usr/bin/composer" ]]; then
         rm -f "composer-setup.php"
         rm -rf "$composer_tmp"
     else
-        if ! sudo php composer-setup.php --install-dir="/usr/bin" --filename=composer --quiet; then
+        if ! sudo php composer-setup.php --install-dir=/usr/bin --filename=composer --quiet; then
             warn "Failed to install composer, continuing without it"
         fi
-        rm -f "composer-setup.php"
-        rm -rf "$composer_tmp"
+        rm -rf "$composer_tmp" composer-setup.php
     fi
     cd "$cwd" || exit 1
 fi
 
 case "$VER" in
-    20.04|22.04|23.04|23.10)
-        version="2.4.6"
-        ;;
-    11|12|24.04)
-        version="2.4.7"
-        ;;
+    22.04) version=2.4.6 ;;
+    12|13|24.04) version=2.4.7 ;;
 esac
 if build "libtool" "$version"; then
     download "https://ftp.gnu.org/gnu/libtool/libtool-$version.tar.xz"
-    execute ./configure --prefix="$workspace" --with-pic M4="$workspace/bin/m4"
+    execute ./configure --prefix="$workspace" \
+                        --with-pic \
+                        M4="$workspace/bin/m4"
     execute make "-j$cpu_threads"
     execute make install
     build_done "libtool" "$version"
@@ -582,7 +565,10 @@ find_git_repo "libsdl-org/libtiff" "1" "T"
 if build "libtiff" "$version"; then
     download "https://codeload.github.com/libsdl-org/libtiff/tar.gz/refs/tags/v$version" "libtiff-$version.tar.gz"
     execute autoreconf -fi
-    execute ./configure --prefix="$workspace" --enable-cxx --with-pic --disable-docs
+    execute ./configure --prefix="$workspace" \
+                        --enable-cxx \
+                        --disable-docs \
+                        --with-pic
     execute make "-j$cpu_threads"
     execute make install
     build_done "libtiff" "$version"
@@ -594,8 +580,11 @@ if build "gperftools" "$version"; then
     download "https://github.com/gperftools/gperftools/releases/download/gperftools-$version/gperftools-$version.tar.gz" "gperftools-$version.tar.bz2"
     CFLAGS+=" -DNOLIBTOOL"
     execute autoreconf -fi
-    mkdir build && cd build || exit 1
-    execute ../configure --prefix="$workspace" --with-pic --with-tcmalloc-pagesize=256
+    [[ ! -d build ]] && mkdir build
+    cd build || exit 1
+    execute ../configure --prefix="$workspace" \
+                         --with-pic \
+                         --with-tcmalloc-pagesize=256
     execute make "-j$cpu_threads"
     execute make install
     build_done "gperftools" "$version"
@@ -629,7 +618,8 @@ find_ghostscript_version "$version"
 if build "ghostscript" "$version"; then
     download "$gscript_url" "ghostscript-$version.tar.xz"
     execute ./autogen.sh
-    execute ./configure --prefix="$workspace" --with-libiconv=native
+    execute ./configure --prefix="$workspace" \
+                        --with-libiconv=native
     execute make "-j$cpu_threads"
     execute make install
     build_done "ghostscript" "$version"
@@ -639,7 +629,9 @@ find_git_repo "pnggroup/libpng" "1" "T"
 if build "libpng" "$version"; then
     download "https://github.com/pnggroup/libpng/archive/refs/tags/v$version.tar.gz" "libpng-$version.tar.gz"
     execute autoreconf -fi
-    execute ./configure --prefix="$workspace" --enable-hardware-optimizations=yes --with-pic
+    execute ./configure --prefix="$workspace" \
+                        --enable-hardware-optimizations=yes \
+                        --with-pic
     execute make "-j$cpu_threads"
     execute make install
     build_done "libpng" "$version"
@@ -665,7 +657,7 @@ if build "$repo_name" "${version//\$ /}"; then
     execute cmake -B build \
                   -DCMAKE_INSTALL_PREFIX="$workspace" \
                   -DCMAKE_BUILD_TYPE=Release \
-                  -DBUILD_SHARED_LIBS=ON \
+                  -DBUILD_SHARED_LIBS=OFF \
                   -DZLIB_INCLUDE_DIR="$workspace/include" \
                   -DWEBP_BUILD_{CWEBP,DWEBP}=ON \
                   -DWEBP_BUILD_{ANIM_UTILS,EXTRAS,VWEBP}=OFF \
@@ -684,7 +676,11 @@ if build "freetype" "$version1"; then
     download "https://gitlab.freedesktop.org/freetype/freetype/-/archive/VER-$version/freetype-VER-$version.tar.bz2" "freetype-$version1.tar.bz2"
     extracmds=("-D"{harfbuzz,png,bzip2,brotli,zlib,tests}"=disabled")
     execute ./autogen.sh
-    execute meson setup build --prefix="$workspace" --buildtype=release --default-library=static --strip "${extracmds[@]}"
+    execute meson setup build --prefix="$workspace" \
+                              --buildtype=release \
+                              --default-library=static \
+                              --strip \
+                              "${extracmds[@]}"
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
     build_done "freetype" "$version1"
@@ -702,7 +698,10 @@ if build "libxml2" "$version"; then
     fi
     export PYTHON_CFLAGS PYTHON_LIBS
     execute ./autogen.sh
-    execute cmake -B build -DCMAKE_INSTALL_PREFIX="$workspace" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -G Ninja -Wno-dev
+    execute cmake -B build -DCMAKE_INSTALL_PREFIX="$workspace" \
+                           -DCMAKE_BUILD_TYPE=Release \
+                           -DBUILD_SHARED_LIBS=OFF \
+                           -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
     build_done "libxml2" "$version"
@@ -799,7 +798,7 @@ if build "raqm" "$version"; then
                               --buildtype=release \
                               --default-library=static \
                               --strip \
-                              -Ddocs="false"
+                              -Ddocs=false
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
     build_done "raqm" "$version"
@@ -833,19 +832,15 @@ if build "$repo_name" "${version//\$ /}"; then
             -B build \
             -DCMAKE_INSTALL_PREFIX="$workspace" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_POSITION_INDEPENDENT_CODE="true" \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=true \
             -DBUILD_SHARED_LIBS=ON \
-            -DBUILD_TESTING=OFF \
-            -DBUILD_DOCS=OFF \
-            -DBUILD_EXAMPLES=OFF \
-            -DOPENCL_SDK_BUILD_SAMPLES=OFF \
-            -DOPENCL_SDK_TEST_SAMPLES=OFF \
+            -DBUILD_{DOCS,EXAMPLES,TESTING}=OFF \
+            -DOPENCL_SDK_{BUILD_SAMPLES,TEST_SAMPLES}=OFF \
             -DCMAKE_C_FLAGS="$CFLAGS" \
             -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
             -DOPENCL_HEADERS_BUILD_CXX_TESTS=OFF \
             -DOPENCL_ICD_LOADER_BUILD_SHARED_LIBS=ON \
-            -DOPENCL_SDK_BUILD_OPENGL_SAMPLES=OFF \
-            -DOPENCL_SDK_BUILD_SAMPLES=OFF \
+            -DOPENCL_SDK_BUILD_{OPENGL_SAMPLES,SAMPLES}=OFF \
             -DOPENCL_SDK_TEST_SAMPLES=OFF \
             -DTHREADS_PREFER_PTHREAD_FLAG=ON \
             -G Ninja -Wno-dev
@@ -861,7 +856,7 @@ if build "openjpeg" "$version"; then
     execute cmake -B build \
                   -DCMAKE_INSTALL_PREFIX="$workspace" \
                   -DCMAKE_BUILD_TYPE=Release \
-                  -DCMAKE_POSITION_INDEPENDENT_CODE="true" \
+                  -DCMAKE_POSITION_INDEPENDENT_CODE=true \
                   -DBUILD_{SHARED_LIBS,THIRDPARTY}=ON \
                   -DBUILD_TESTING=OFF \
                   -G Ninja -Wno-dev
@@ -904,7 +899,8 @@ find_git_repo "ImageMagick/ImageMagick" "1" "T"
 if build "imagemagick" "$version"; then
     download "https://imagemagick.org/archive/releases/ImageMagick-$version.tar.lz" "imagemagick-$version.tar.lz"
     execute autoreconf -fi
-    mkdir build; cd build || exit 1
+    [[ ! -d build ]] && mkdir build
+    cd build || exit 1
     execute ../configure --prefix=/usr/local \
                          --enable-ccmalloc \
                          --enable-delegate-build \
@@ -933,8 +929,8 @@ if build "imagemagick" "$version"; then
                          --with-utilities \
                          --without-autotrace \
                          CFLAGS="$CFLAGS -DCL_TARGET_OPENCL_VERSION=300" \
-                         CXXFLAGS="$CFLAGS -DCL_TARGET_OPENCL_VERSION=300" \
-                         CPPFLAGS="$CPPFLAGS -I$workspace/include/CL -I/usr/include" \
+                         CXXFLAGS="$CFLAGS" \
+                         CPPFLAGS="$CPPFLAGS -I$workspace/include/CL" \
                          PKG_CONFIG="$workspace/bin/pkg-config"
     execute make "-j$cpu_threads"
     execute sudo make install
@@ -950,4 +946,4 @@ show_version
 cleanup
 
 # SHOW EXIT MESSAGE
-exit_fn
+exit_fngit_url
