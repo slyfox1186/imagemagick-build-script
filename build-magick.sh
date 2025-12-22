@@ -7,9 +7,9 @@
 # Purpose: Build ImageMagick 7 from the source code obtained from ImageMagick's official GitHub repository
 # Supported OS: Debian (11|12) | Ubuntu (20|22|24).04
 
-if [[ "$EUID" -ne 0 ]]; then
-    echo "This script must be run as root or with sudo."
-    exit 1
+# Check if sudo is available for commands that need root
+if ! command -v sudo &>/dev/null && [[ "$EUID" -ne 0 ]]; then
+    echo "Warning: sudo is not available and you are not root. Some operations may fail."
 fi
 
 # SET GLOBAL VARIABLES
@@ -114,11 +114,11 @@ cleanup() {
     echo "[2] No"
     echo
 
-    read -p "Your choices are (1 or 2): " choice
+    read -rp "Your choices are (1 or 2): " choice
 
-    case "$choice" in
-        [1|y|Y]*) rm -fr "$cwd" ;;
-        [2|n|N]*) ;;
+    case "${choice,,}" in
+        1|y|yes) rm -fr "$cwd" ;;
+        2|n|no) ;;
         *) unset choice
            cleanup
            ;;
@@ -135,6 +135,7 @@ set_high_end_cpu() {
 
 execute() {
     echo "$ $*"
+    local output
 
     if [[ "$debug" == "ON" ]]; then
         if ! output=$("$@"); then
@@ -144,6 +145,7 @@ execute() {
     else
         if ! output=$("$@" 2>&1); then
             notify-send -t 5000 "Failed to execute: $*" 2>/dev/null
+            echo "$output" >&2
             fail "Failed to execute: $*. Line: $LINENO"
         fi
     fi
@@ -248,12 +250,12 @@ git_clone() {
         [[ "$recurse_flag" -eq 1 ]] && recurse="--recursive"
         [[ -d "$target_directory" ]] && rm -fr "$target_directory"
         # Clone the repository
-        if ! git clone --depth 1 $recurse -q "$repo_url" "$target_directory"; then
+        if ! git clone --depth 1 ${recurse:+"$recurse"} -q "$repo_url" "$target_directory"; then
             echo
             echo -e "${RED}[ERROR]${NC} Failed to clone \"$target_directory\". Second attempt in 10 seconds..."
             echo
             sleep 10
-            if ! git clone --depth 1 $recurse -q "$repo_url" "$target_directory"; then
+            if ! git clone --depth 1 ${recurse:+"$recurse"} -q "$repo_url" "$target_directory"; then
                 fail "Failed to clone \"$target_directory\". Exiting script. Line: $LINENO"
             fi
         fi
@@ -383,7 +385,7 @@ download_fonts() {
         git_caller "$font_url" "$repo_name"
         if build "$repo_name" "$version"; then
             git_clone "$git_url" "$repo_name"
-            execute cp -fr . "/usr/share/fonts/truetype/"
+            execute sudo cp -fr . "/usr/share/fonts/truetype/"
             build_done "$repo_name" "$version"
         fi
     done
@@ -400,15 +402,16 @@ find_ghostscript_version() {
 
 apt_pkgs() {
     local pkg missing_packages
-    local -a pkgs=()
+    local -a pkgs=() extra_pkgs=("$@")
 
     pkgs=(
-        $1 alien autoconf autoconf-archive binutils bison build-essential
-        cmake curl dbus-x11 flex fontforge git gperf imagemagick intltool
+        "${extra_pkgs[@]}"
+        alien autoconf autoconf-archive binutils bison build-essential
+        cmake curl dbus-x11 flex fontforge git gperf intltool
         jq libc6 libcamd2 libcpu-features-dev libdmalloc-dev libdmalloc5
         libfont-ttf-perl libgc-dev libgc1 libgegl-0.4-0 libgegl-common
-        libgimp2.0-dev libgl2ps-dev libglib2.0-dev libgs-dev libheif-dev
-        libhwy-dev libjxl-dev libnotify-bin libpstoedit-dev librust-jpeg-decoder-dev
+        libgl2ps-dev libglib2.0-dev libgs-dev libheif-dev
+        libhwy-dev libjxl-dev libnotify-bin librust-jpeg-decoder-dev
         librust-malloc-buf-dev libsharp-dev libticonv-dev libtool libtool-bin
         libyuv-dev libyuv-utils libyuv0 lsb-release lzip m4 meson nasm ninja-build
         php-dev pkg-config python3-dev yasm zlib1g-dev
@@ -453,39 +456,15 @@ apt_pkgs() {
         log "Installing available missing packages:"
         printf "       %s\n" "${available_packages[@]}"
         echo
-        apt update
-        apt install "${available_packages[@]}"
-        apt -y autoremove
+        sudo apt update
+        sudo apt install "${available_packages[@]}"
+        sudo apt -y autoremove
         echo
     else
         log "No missing packages to install or all missing packages are unavailable."
     fi
 }
 
-download_autotrace() {
-    if build "autotrace" "0.40.0-20200219"; then
-        curl -fsSLo "$packages/deb-files/autotrace-0.40.0-20200219.deb" "https://github.com/autotrace/autotrace/releases/download/travis-20200219.65/autotrace_0.40.0-20200219_all.deb"
-        cd "$packages/deb-files" || exit 1
-        execute apt -y install ./autotrace-0.40.0-20200219.deb
-        build_done "autotrace" "0.40.0-20200219"
-    fi
-}
-
-set_autotrace() {
-    # Enable or disable autotrace
-    case "$OS" in
-        Ubuntu)
-            download_autotrace
-            local flag="true"
-            ;;
-    esac
-
-    if [[ "$flag" == "true" ]]; then
-        autotrace_switch="--with-autotrace"
-    else
-        autotrace_switch="--without-autotrace"
-    fi
-}
 
 # Install APT packages
     echo
@@ -494,7 +473,7 @@ set_autotrace() {
 
 debian_version() {
     case "$VER" in
-        11) apt_pkgs "libvmmalloc1 libvmmalloc-dev" ;;
+        11) apt_pkgs libvmmalloc1 libvmmalloc-dev ;;
         12) apt_pkgs ;;
         *)  fail "Could not detect the Debian version. Line: $LINENO" ;;
     esac
@@ -531,36 +510,42 @@ case "$OS" in
         ;;
 esac
 
-# INSTALL OFFICIAL IMAGEMAGICK LIBS
+# INSTALL OFFICIAL IMAGEMAGICK LIBS (optional - skip if version not available)
 find_git_repo "imagemagick/imagemagick" "1" "T"
 if build "magick-libs" "$version"; then
     if [[ ! -d "$packages/deb-files" ]]; then
         mkdir -p "$packages/deb-files"
     fi
     cd "$packages/deb-files" || exit 1
-    if ! curl -LsSo "magick-libs-$version.rpm" "https://imagemagick.org/archive/linux/CentOS/x86_64/ImageMagick-libs-$version.x86_64.rpm"; then
-        fail "Failed to download the magick-libs file. Line: $LINENO"
+    if curl -LsSo "magick-libs-$version.rpm" "https://imagemagick.org/archive/linux/CentOS/x86_64/ImageMagick-libs-$version.x86_64.rpm" 2>/dev/null; then
+        execute sudo alien -d ./*.rpm || warn "alien conversion failed, continuing..."
+        execute sudo dpkg -i ./*.deb || warn "dpkg install failed, continuing..."
+        build_done "magick-libs" "$version"
+    else
+        warn "magick-libs $version not available for download, skipping (will build from source)"
     fi
-    execute alien -d ./*.rpm || fail "[Error] alien -d ./*.rpm Line: $LINENO"
-    execute dpkg -i ./*.deb || fail "[Error] dpkg -i ./*.deb Line: $LINENO"
-    build_done "magick-libs" "$version"
 fi
 
 # INSTALL COMPOSER TO COMPILE GRAPHVIZ
 if [[ ! -f "/usr/bin/composer" ]]; then
+    composer_tmp=$(mktemp -d)
+    cd "$composer_tmp" || fail "Failed to cd to temp directory"
     EXPECTED_CHECKSUM=$(php -r 'copy("https://composer.github.io/installer.sig", "php://stdout");')
     php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
     ACTUAL_CHECKSUM=$(php -r "echo hash_file('sha384', 'composer-setup.php');")
 
     if [[ "$EXPECTED_CHECKSUM" != "$ACTUAL_CHECKSUM" ]]; then
-        >&2 echo "ERROR: Invalid installer checksum"
-        rm "composer-setup.php"
-        return 1
+        warn "Composer checksum mismatch, skipping composer installation"
+        rm -f "composer-setup.php"
+        rm -rf "$composer_tmp"
+    else
+        if ! sudo php composer-setup.php --install-dir="/usr/bin" --filename=composer --quiet; then
+            warn "Failed to install composer, continuing without it"
+        fi
+        rm -f "composer-setup.php"
+        rm -rf "$composer_tmp"
     fi
-    if ! php composer-setup.php --install-dir="/usr/bin" --filename=composer --quiet; then
-        fail "Failed to install composer. Line: $LINENO"
-    fi
-    rm "composer-setup.php"
+    cd "$cwd" || exit 1
 fi
 
 case "$VER" in
@@ -597,7 +582,7 @@ find_git_repo "libsdl-org/libtiff" "1" "T"
 if build "libtiff" "$version"; then
     download "https://codeload.github.com/libsdl-org/libtiff/tar.gz/refs/tags/v$version" "libtiff-$version.tar.gz"
     execute autoreconf -fi
-    execute ./configure --prefix="$workspace" --enable-cxx --with-pic
+    execute ./configure --prefix="$workspace" --enable-cxx --with-pic --disable-docs
     execute make "-j$cpu_threads"
     execute make install
     build_done "libtiff" "$version"
@@ -609,14 +594,14 @@ if build "gperftools" "$version"; then
     download "https://github.com/gperftools/gperftools/releases/download/gperftools-$version/gperftools-$version.tar.gz" "gperftools-$version.tar.bz2"
     CFLAGS+=" -DNOLIBTOOL"
     execute autoreconf -fi
-    mkdir build; cd build
+    mkdir build && cd build || exit 1
     execute ../configure --prefix="$workspace" --with-pic --with-tcmalloc-pagesize=256
     execute make "-j$cpu_threads"
     execute make install
     build_done "gperftools" "$version"
 fi
 
-git_caller "https://github.com/imageMagick/jpeg-turbo.git" "jpeg-turbo-git"
+git_caller "https://github.com/libjpeg-turbo/libjpeg-turbo.git" "jpeg-turbo-git"
 if build "$repo_name" "${version//\$ /}"; then
     git_clone "$git_url" "$repo_name"
     execute cmake -S . \
@@ -709,12 +694,13 @@ find_git_repo "1665" "3" "T"
 if build "libxml2" "$version"; then
     download "https://gitlab.gnome.org/GNOME/libxml2/-/archive/v$version/libxml2-v$version.tar.bz2" "libxml2-$version.tar.bz2"
     if command -v python3.11-config &>/dev/null; then
-        export PYTHON_CFLAGS=$(python3.11-config --cflags)
-        export PYTHON_LIBS=$(python3.11-config --ldflags)
+        PYTHON_CFLAGS=$(python3.11-config --cflags)
+        PYTHON_LIBS=$(python3.11-config --ldflags)
     else
-        export PYTHON_CFLAGS=$(python3.12-config --cflags)
-        export PYTHON_LIBS=$(python3.12-config --ldflags)
+        PYTHON_CFLAGS=$(python3.12-config --cflags)
+        PYTHON_LIBS=$(python3.12-config --ldflags)
     fi
+    export PYTHON_CFLAGS PYTHON_LIBS
     execute ./autogen.sh
     execute cmake -B build -DCMAKE_INSTALL_PREFIX="$workspace" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
@@ -773,7 +759,7 @@ if build "$repo_name" "${version//\$ /}"; then
                         -D privlibexp="$workspace/lib/c2man"
     execute make depend
     execute make "-j$cpu_threads"
-    execute make install
+    execute sudo make install
     build_done "$repo_name" "$version"
 fi
 
@@ -866,7 +852,7 @@ if build "$repo_name" "${version//\$ /}"; then
             -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
-    execute mv $workspace/lib/pkgconfig/libpng.pc $workspace/lib/pkgconfig/libpng-12.pc
+    execute mv "$workspace/lib/pkgconfig/libpng.pc" "$workspace/lib/pkgconfig/libpng-12.pc"
     build_done "$repo_name" "$version"
 fi
 
@@ -898,9 +884,6 @@ fi
 
 # Download and install fonts
 download_fonts
-
-# Determine whether of not to install autotrace
-set_autotrace
 
 echo
 box_out_banner_magick() {
@@ -949,17 +932,17 @@ if build "imagemagick" "$version"; then
                          --with-rsvg \
                          --with-tcmalloc \
                          --with-utilities \
-                         --with-autotrace \
+                         --without-autotrace \
                          CFLAGS="$CFLAGS -DCL_TARGET_OPENCL_VERSION=300" \
                          CXXFLAGS="$CFLAGS -DCL_TARGET_OPENCL_VERSION=300" \
                          CPPFLAGS="$CPPFLAGS -I$workspace/include/CL -I/usr/include" \
                          PKG_CONFIG="$workspace/bin/pkg-config"
     execute make "-j$cpu_threads"
-    execute make install
+    execute sudo make install
 fi
 
 # LDCONFIG MUST BE RUN NEXT TO UPDATE FILE CHANGES OR THE MAGICK COMMAND WILL NOT WORK
-ldconfig
+sudo ldconfig
 
 # SHOW THE NEWLY INSTALLED MAGICK VERSION
 show_version
