@@ -709,7 +709,6 @@ if build "libxml2" "$version"; then
 fi
 
 find_git_repo "890" "2"
-fc_dir="$packages/fontconfig-$version"
 if build "fontconfig" "$version"; then
     download "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/$version/fontconfig-$version.tar.bz2"
     
