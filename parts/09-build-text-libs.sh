@@ -28,10 +28,29 @@ if build "libxml2" "$version"; then
         PYTHON_LIBS=$(python3.12-config --ldflags)
     fi
     export PYTHON_CFLAGS PYTHON_LIBS
+
+    # Detect standalone GNU libiconv (vs glibc built-in) so cmake links it properly
+    iconv_cmake_flags=()
+    for _dir in "$workspace/lib" /usr/local/lib /usr/lib; do
+        if [[ -f "$_dir/libiconv.a" || -f "$_dir/libiconv.so" ]]; then
+            _inc="${_dir%/lib}/include"
+            if [[ -f "$_inc/iconv.h" ]]; then
+                iconv_cmake_flags+=("-DIconv_INCLUDE_DIR=$_inc")
+                if [[ -f "$_dir/libiconv.a" ]]; then
+                    iconv_cmake_flags+=("-DIconv_LIBRARY=$_dir/libiconv.a")
+                else
+                    iconv_cmake_flags+=("-DIconv_LIBRARY=$_dir/libiconv.so")
+                fi
+                break
+            fi
+        fi
+    done
+
     execute sh ./autogen.sh
     execute cmake -B build -DCMAKE_INSTALL_PREFIX="$workspace" \
                            -DCMAKE_BUILD_TYPE=Release \
                            -DBUILD_SHARED_LIBS=OFF \
+                           "${iconv_cmake_flags[@]}" \
                            -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
