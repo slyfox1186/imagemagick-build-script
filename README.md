@@ -13,7 +13,7 @@ bash build-magick.sh
 Set a specific parallel worker count:
 ```bash
 bash build-magick.sh --workers 24
-bash build-magick.sh -w 24
+bash build-magick.sh --help
 ```
 
 #### Output
