@@ -6,7 +6,7 @@ A smart build script for ImageMagick and its additional modules. Automatically l
 #### Git Clone
 ```bash
 git clone https://github.com/slyfox1186/imagemagick-build-script.git
-cd imagemagick-build-script
+cd imagemagick-build-script || exit 1
 bash build-magick.sh
 ```
 
