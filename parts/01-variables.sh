@@ -19,18 +19,25 @@ NC='\033[0m' # No Color
 
 # ANNOUNCE THE BUILD HAS BEGUN
 box_out_banner() {
-    local text="$*"
-    local input_char=${#text}
-    line=$(printf '%*s' "$((input_char + 1))" '' | tr ' ' '-')
-    tput bold
-    line="$(tput setaf 3)$line"
-    space="${line//-/ }"
-    echo " $line"
-    printf "|" ; echo -n "$space" ; printf "%s\n" "|";
-    printf "| " ;tput setaf 4; echo -n "$@"; tput setaf 3 ; printf "%s\n" " |";
-    printf "|" ; echo -n "$space" ; printf "%s\n" "|";
-    echo " $line"
-    tput sgr 0
+    local border color_border color_text color_reset inner_len text text_len
+    text="$*"
+    text_len=${#text}
+    inner_len=$((text_len + 2))
+
+    color_border="$(tput setaf 3 2>/dev/null || true)"
+    color_text="$(tput setaf 4 2>/dev/null || true)"
+    color_reset="$(tput sgr0 2>/dev/null || true)"
+
+    printf -v border '%*s' "$inner_len" ''
+    border=${border// /-}
+
+    tput bold 2>/dev/null || true
+    printf ' %b%s%b\n' "$color_border" "$border" "$color_reset"
+    printf '|%*s|\n' "$inner_len" ''
+    printf '| %b%s%b |\n' "$color_text" "$text" "$color_reset"
+    printf '|%*s|\n' "$inner_len" ''
+    printf ' %b%s%b\n' "$color_border" "$border" "$color_reset"
+    tput sgr0 2>/dev/null || true
 }
 
 # CREATE OUTPUT DIRECTORIES
