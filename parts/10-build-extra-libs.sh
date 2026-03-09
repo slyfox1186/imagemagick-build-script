@@ -3,8 +3,8 @@
 find_git_repo "jemalloc/jemalloc" "1" "T"
 if build "jemalloc" "$version"; then
     download "https://github.com/jemalloc/jemalloc/archive/refs/tags/$version.tar.gz" "jemalloc-$version.tar.gz"
-    execute sh ./autogen.sh
-    execute sh ./configure --prefix="$workspace" \
+    execute sh autogen.sh
+    execute sh configure --prefix="$workspace" \
                         --disable-debug \
                         --disable-doc \
                         --disable-fill \
@@ -53,8 +53,9 @@ if build "openjpeg" "$version"; then
                   -DCMAKE_INSTALL_PREFIX="$workspace" \
                   -DCMAKE_BUILD_TYPE=Release \
                   -DCMAKE_POSITION_INDEPENDENT_CODE=true \
+                  -DBUILD_CODEC=OFF \
                   -DBUILD_{SHARED_LIBS,TESTING}=OFF \
-                  -DBUILD_THIRDPARTY=ON \
+                  -DBUILD_THIRDPARTY=OFF \
                   -G Ninja -Wno-dev
     execute ninja "-j$cpu_threads" -C build
     execute ninja -C build install
@@ -65,8 +66,8 @@ find_git_repo "mm2/Little-CMS" "1" "T"
 version="${version//lcms/}"
 if build "lcms2" "$version"; then
     download "https://github.com/mm2/Little-CMS/archive/refs/tags/lcms$version.tar.gz" "lcms2-$version.tar.gz"
-    execute sh ./autogen.sh
-    execute sh ./configure --prefix="$workspace" --with-pic --with-threaded
+    execute sh autogen.sh
+    execute sh configure --prefix="$workspace" --with-pic --with-threaded
     execute make "-j$cpu_threads"
     execute make install
     build_done "lcms2" "$version"

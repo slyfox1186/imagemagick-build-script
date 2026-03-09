@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 
 # LDCONFIG MUST BE RUN NEXT TO UPDATE FILE CHANGES OR THE MAGICK COMMAND WILL NOT WORK
-use_root ldconfig
+exec_root ldconfig
 
 # SHOW THE NEWLY INSTALLED MAGICK VERSION
 show_version

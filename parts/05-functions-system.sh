@@ -10,7 +10,7 @@ apt_pkgs() {
         binutils bison build-essential cmake curl dbus-x11
         flex fontforge git gperf intltool jq libc6
         libx11-dev libxext-dev libxt-dev
-        libcpu-features-dev libdmalloc-dev libdmalloc5
+        libcpu-features-dev
         libfont-ttf-perl libgc-dev libgc1 libgegl-common
         libgl2ps-dev libglib2.0-dev libgs-dev libheif-dev
         libhwy-dev libjxl-dev libnotify-bin librust-jpeg-decoder-dev
@@ -54,9 +54,9 @@ apt_pkgs() {
         log "Installing available missing packages:"
         printf "       %s\n" "${available_packages[@]}"
         echo
-        use_root apt-get update || fail "apt-get update failed. Line: ${LINENO}"
-        use_root apt-get install -y "${available_packages[@]}" || fail "apt-get install failed. Line: ${LINENO}"
-        use_root apt-get -y autoremove || warn "apt-get autoremove failed, continuing..."
+        exec_root apt-get update || fail "apt-get update failed. Line: ${LINENO}"
+        exec_root apt-get install -y "${available_packages[@]}" || fail "apt-get install failed. Line: ${LINENO}"
+        exec_root apt-get -y autoremove || warn "apt-get autoremove failed, continuing..."
         echo
     else
         log "No missing packages to install or all missing packages are unavailable."

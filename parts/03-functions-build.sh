@@ -18,6 +18,11 @@ execute() {
     fi
 }
 
+try_execute() {
+    echo "$ $*"
+    "$@"
+}
+
 build() {
     echo
     echo -e "${GREEN}Building ${YELLOW}$1${NC} - ${GREEN}version ${YELLOW}$2${NC}"
@@ -36,22 +41,11 @@ build_done() {
     echo "$2" > "$packages/$1.done"
 }
 
-download() {
-    local archive url output_dir target_file target_dir
-    url="$1"
-    archive="${2:-${url##*/}}"
-    output_dir="$3"
-    target_file="$packages/$archive"
-    target_dir="$packages/${output_dir:-${archive%.tar*}}"
-
-    if [[ ! -f "$target_file" ]]; then
-        log "Downloading \"$url\" saving as \"$archive\""
-        if ! curl -fLSso "$target_file" "$url"; then
-            fail "Failed to download \"$archive\". Line: ${LINENO}"
-        fi
-    else
-        log "The file \"$archive\" is already downloaded."
-    fi
+extract_downloaded_archive() {
+    local archive="$1"
+    local output_dir="$2"
+    local target_file="$packages/$archive"
+    local target_dir="$packages/${output_dir:-${archive%.tar*}}"
 
     [[ -d "$target_dir" ]] && safe_rm_rf "$target_dir"
     [[ ! -d "$target_dir" ]] && mkdir -p "$target_dir"
@@ -70,6 +64,47 @@ download() {
 
     log "File extracted: $archive"
     cd "$target_dir" || fail "Unable to change the working directory to \"$target_dir\" Line: ${LINENO}"
+}
+
+download() {
+    local archive url output_dir target_file
+    url="$1"
+    archive="${2:-${url##*/}}"
+    output_dir="$3"
+    target_file="$packages/$archive"
+
+    if [[ ! -f "$target_file" ]]; then
+        log "Downloading \"$url\" saving as \"$archive\""
+        if ! curl -fLSso "$target_file" "$url"; then
+            fail "Failed to download \"$archive\". Line: ${LINENO}"
+        fi
+    else
+        log "The file \"$archive\" is already downloaded."
+    fi
+
+    extract_downloaded_archive "$archive" "$output_dir"
+}
+
+download_with_fallback() {
+    local primary_url="$1"
+    local fallback_url="$2"
+    local archive="${3:-${primary_url##*/}}"
+    local output_dir="$4"
+    local target_file="$packages/$archive"
+
+    if [[ ! -f "$target_file" ]]; then
+        log "Downloading \"$primary_url\" saving as \"$archive\""
+        if ! curl -fLSso "$target_file" "$primary_url"; then
+            warn "Primary download failed for \"$archive\", trying fallback mirror"
+            if ! curl -fLSso "$target_file" "$fallback_url"; then
+                fail "Failed to download \"$archive\". Line: ${LINENO}"
+            fi
+        fi
+    else
+        log "The file \"$archive\" is already downloaded."
+    fi
+
+    extract_downloaded_archive "$archive" "$output_dir"
 }
 
 git_latest_version() {
@@ -133,6 +168,7 @@ git_clone() {
     if [[ ! "$version" == "$store_prior_version" ]]; then
         [[ "$recurse" -eq 1 ]] && recurse_opt="--recursive"
         [[ -d "$target_directory" ]] && safe_rm_rf "$target_directory"
+        log "Cloning repo: $repo_name"
         # Clone the repository
         if ! git clone --depth 1 ${recurse_opt:+"$recurse_opt"} -q "$repo_url" "$target_directory"; then
             echo
