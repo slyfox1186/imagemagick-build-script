@@ -7,13 +7,13 @@ A smart build script for ImageMagick and its additional modules. Automatically l
 ```bash
 git clone https://github.com/slyfox1186/imagemagick-build-script.git
 cd imagemagick-build-script
-sudo bash build-magick.sh
+bash build-magick.sh
 ```
 
 Set a specific parallel worker count:
 ```bash
-sudo bash build-magick.sh --workers 24
-sudo bash build-magick.sh -w 24
+bash build-magick.sh --workers 24
+bash build-magick.sh -w 24
 ```
 
 #### Output
