@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # shellcheck shell=bash
 
 find_git_repo "libsdl-org/libtiff" "1" "T"

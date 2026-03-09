@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # shellcheck shell=bash
 
 find_git_repo "jemalloc/jemalloc" "1" "T"
