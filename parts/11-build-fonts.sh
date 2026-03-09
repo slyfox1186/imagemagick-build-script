@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 
 download_fonts() {
-    local -a font_urls=(
+    local -a font_urls=()
+    font_urls=(
         "https://github.com/dejavu-fonts/dejavu-fonts.git"
         "https://github.com/adobe-fonts/source-code-pro.git"
         "https://github.com/adobe-fonts/source-sans-pro.git"
@@ -16,7 +17,7 @@ download_fonts() {
         git_caller "$font_url" "$repo_name"
         if build "$repo_name" "$version"; then
             git_clone "$git_url" "$repo_name" "$recurse_flag" "$version"
-            execute use_root cp -fr . "/usr/share/fonts/truetype/"
+            execute exec_root cp -fr ./ /usr/share/fonts/truetype/
             build_done "$repo_name" "$version"
         fi
     done

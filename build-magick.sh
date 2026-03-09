@@ -2,7 +2,7 @@
 # shellcheck disable=SC2034
 set -o pipefail
 
-# Script Version: 1.1.5
+# Script Version: 1.2.0
 # Updated: 12.2.25
 # GitHub: https://github.com/slyfox1186/imagemagick-build-script
 # Purpose: Build ImageMagick 7 from the source code obtained from ImageMagick's official GitHub repository
@@ -17,12 +17,74 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PARTS_DIR="$SCRIPT_DIR/parts"
 
+print_usage() {
+    cat <<'EOF'
+Usage: build-magick.sh [OPTIONS]
+
+Build ImageMagick and its dependencies from source.
+
+Options:
+  -w, --workers N    Set the parallel worker count used for make/ninja jobs.
+                     N must be a positive integer.
+  -h, --help         Show this help text and exit.
+
+Default:
+  If --workers is not provided, the script uses the detected CPU thread count.
+
+Examples:
+  build-magick.sh
+  build-magick.sh --workers 24
+  build-magick.sh -w 24
+EOF
+}
+
+parse_args() {
+    local workers_arg=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -w|--workers)
+                [[ $# -lt 2 ]] && {
+                    echo "Error: $1 requires an integer value." >&2
+                    print_usage >&2
+                    exit 1
+                }
+                workers_arg="$2"
+                shift 2
+                ;;
+            --workers=*)
+                workers_arg="${1#*=}"
+                shift
+                ;;
+            -h|--help)
+                print_usage
+                exit 0
+                ;;
+            *)
+                echo "Error: Unknown argument: $1" >&2
+                print_usage >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    if [[ -n "$workers_arg" ]]; then
+        if [[ ! "$workers_arg" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Error: --workers/-w must be a positive integer." >&2
+            exit 1
+        fi
+        export BUILD_MAGICK_WORKERS="$workers_arg"
+    fi
+}
+
 require_part() {
     if [[ ! -f "$1" ]]; then
         echo "Error: Missing required part: $1" >&2
         exit 1
     fi
 }
+
+parse_args "$@"
 
 # Phase 1: Variables and environment
 require_part "$PARTS_DIR/01-variables.sh"
@@ -34,6 +96,14 @@ box_out_banner "ImageMagick Build Script v$script_ver"
 require_part "$PARTS_DIR/02-functions-core.sh"
 # shellcheck source=parts/02-functions-core.sh
 source "$PARTS_DIR/02-functions-core.sh"
+
+if [[ -n "${GNU_COMPILER_VERSION:-}" ]]; then
+    log "Using GNU compiler toolchain version $GNU_COMPILER_VERSION: $CC and $CXX."
+fi
+
+if [[ -n "${BUILD_MAGICK_WORKERS:-}" ]]; then
+    log "Parallel worker count manually set to $cpu_threads."
+fi
 
 require_part "$PARTS_DIR/03-functions-build.sh"
 # shellcheck source=parts/03-functions-build.sh

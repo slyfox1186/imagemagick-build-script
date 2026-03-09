@@ -6,7 +6,7 @@ version1="${version//-/.}"
 if build "freetype" "$version1"; then
     download "https://gitlab.freedesktop.org/freetype/freetype/-/archive/VER-$version/freetype-VER-$version.tar.bz2" "freetype-$version1.tar.bz2"
     extracmds=("-D"{harfbuzz,png,bzip2,brotli,zlib,tests}"=disabled")
-    execute sh ./autogen.sh
+    execute sh autogen.sh
     execute meson setup build --prefix="$workspace" \
                               --buildtype=release \
                               --default-library=static \
@@ -46,9 +46,10 @@ if build "libxml2" "$version"; then
         fi
     done
 
-    execute sh ./autogen.sh
+    execute sh autogen.sh
     execute cmake -B build -DCMAKE_INSTALL_PREFIX="$workspace" \
                            -DCMAKE_BUILD_TYPE=Release \
+                           -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE \
                            -DBUILD_SHARED_LIBS=OFF \
                            "${iconv_cmake_flags[@]}" \
                            -G Ninja -Wno-dev
@@ -68,8 +69,8 @@ if build "fontconfig" "$version"; then
     # Update the pkg-config file to include LIBXML_STATIC
     sed -i "s|Cflags:|& -DLIBXML_STATIC|" "fontconfig.pc.in"
 
-    execute sh ./autogen.sh --noconf
-    execute sh ./configure --prefix="$workspace" \
+    execute sh autogen.sh --noconf
+    execute sh configure --prefix="$workspace" \
                         --disable-docbook \
                         --disable-docs \
                         --disable-shared \
@@ -92,8 +93,6 @@ fi
 # Skip it as it has compatibility issues with modern systems
 if command -v c2man &>/dev/null; then
     log "c2man already available, skipping build"
-else
-    warn "c2man not available, skipping (optional - used for man page generation)"
 fi
 
 find_git_repo "fribidi/fribidi" "1" "T"

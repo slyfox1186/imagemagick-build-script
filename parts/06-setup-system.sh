@@ -20,12 +20,37 @@ esac
 # INSTALL OFFICIAL IMAGEMAGICK LIBS (optional - skip if version not available)
 find_git_repo "imagemagick/imagemagick" "1" "T"
 if build "magick-libs" "$version"; then
+    rpm_files=()
+    deb_files=()
+    magick_libs_installed=0
     [[ ! -d "$packages/deb-files" ]] && mkdir -p "$packages/deb-files"
     cd "$packages/deb-files" || exit 1
+    shopt -s nullglob
+    rpm_files=( *.rpm )
+    deb_files=( *.deb )
+    ((${#rpm_files[@]})) && rm -f -- "${rpm_files[@]}"
+    ((${#deb_files[@]})) && rm -f -- "${deb_files[@]}"
+    shopt -u nullglob
     if curl -LSso "magick-libs-$version.rpm" "https://imagemagick.org/archive/linux/CentOS/x86_64/ImageMagick-libs-$version.x86_64.rpm" 2>/dev/null; then
-        execute use_root alien -d ./*.rpm || warn "alien conversion failed, continuing..."
-        execute use_root dpkg --force-overwrite -i ./*.deb || warn "dpkg install failed, continuing..."
-        build_done "magick-libs" "$version"
+        shopt -s nullglob
+        rpm_files=( *.rpm )
+        if ((${#rpm_files[@]})); then
+            if ! try_execute exec_root alien -d -- "${rpm_files[@]}"; then
+                warn "alien conversion failed, continuing..."
+            fi
+        fi
+        deb_files=( *.deb )
+        if ((${#deb_files[@]})); then
+            if ! try_execute exec_root dpkg --force-overwrite -i -- "${deb_files[@]}"; then
+                warn "dpkg install failed, continuing..."
+            else
+                magick_libs_installed=1
+            fi
+        fi
+        shopt -u nullglob
+        if [[ "$magick_libs_installed" -eq 1 ]]; then
+            build_done "magick-libs" "$version"
+        fi
     else
         warn "magick-libs $version not available for download, skipping (will build from source)"
     fi
@@ -44,7 +69,7 @@ if [[ ! -f "/usr/bin/composer" ]]; then
         rm -f "composer-setup.php"
         rm -rf "$composer_tmp"
     else
-        if ! use_root php composer-setup.php --install-dir=/usr/bin --filename=composer --quiet; then
+        if ! exec_root php composer-setup.php --install-dir=/usr/bin --filename=composer --quiet; then
             warn "Failed to install composer, continuing without it"
         fi
         rm -rf "$composer_tmp" composer-setup.php
