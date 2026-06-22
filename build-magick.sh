@@ -13,9 +13,9 @@ if ! command -v sudo &>/dev/null && [[ "$EUID" -ne 0 ]]; then
     echo "Warning: sudo is not available and you are not root. Some operations may fail."
 fi
 
-# Resolve script directory for sourcing parts
+# Resolve script directory for sourcing helper scripts
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PARTS_DIR="$SCRIPT_DIR/parts"
+SCRIPTS_DIR="$SCRIPT_DIR/scripts"
 
 print_usage() {
     cat <<'EOF'
@@ -77,9 +77,9 @@ parse_args() {
     fi
 }
 
-require_part() {
+require_script() {
     if [[ ! -f "$1" ]]; then
-        echo "Error: Missing required part: $1" >&2
+        echo "Error: Missing required script: $1" >&2
         exit 1
     fi
 }
@@ -87,15 +87,15 @@ require_part() {
 parse_args "$@"
 
 # Phase 1: Variables and environment
-require_part "$PARTS_DIR/01-variables.sh"
-# shellcheck source=parts/01-variables.sh
-source "$PARTS_DIR/01-variables.sh"
+require_script "$SCRIPTS_DIR/01-variables.sh"
+# shellcheck source=scripts/01-variables.sh
+source "$SCRIPTS_DIR/01-variables.sh"
 box_out_banner "ImageMagick Build Script v$script_ver"
 
 # Phase 2: Function definitions
-require_part "$PARTS_DIR/02-functions-core.sh"
-# shellcheck source=parts/02-functions-core.sh
-source "$PARTS_DIR/02-functions-core.sh"
+require_script "$SCRIPTS_DIR/02-functions-core.sh"
+# shellcheck source=scripts/02-functions-core.sh
+source "$SCRIPTS_DIR/02-functions-core.sh"
 
 if [[ -n "${GNU_COMPILER_VERSION:-}" ]]; then
     log "Using GNU compiler toolchain version $GNU_COMPILER_VERSION: $CC and $CXX."
@@ -105,51 +105,51 @@ if [[ -n "${BUILD_MAGICK_WORKERS:-}" ]]; then
     log "Parallel worker count manually set to $cpu_threads."
 fi
 
-require_part "$PARTS_DIR/03-functions-build.sh"
-# shellcheck source=parts/03-functions-build.sh
-source "$PARTS_DIR/03-functions-build.sh"
+require_script "$SCRIPTS_DIR/03-functions-build.sh"
+# shellcheck source=scripts/03-functions-build.sh
+source "$SCRIPTS_DIR/03-functions-build.sh"
 
-require_part "$PARTS_DIR/04-functions-version.sh"
-# shellcheck source=parts/04-functions-version.sh
-source "$PARTS_DIR/04-functions-version.sh"
+require_script "$SCRIPTS_DIR/04-functions-version.sh"
+# shellcheck source=scripts/04-functions-version.sh
+source "$SCRIPTS_DIR/04-functions-version.sh"
 
-require_part "$PARTS_DIR/05-functions-system.sh"
-# shellcheck source=parts/05-functions-system.sh
-source "$PARTS_DIR/05-functions-system.sh"
+require_script "$SCRIPTS_DIR/05-functions-system.sh"
+# shellcheck source=scripts/05-functions-system.sh
+source "$SCRIPTS_DIR/05-functions-system.sh"
 
 # Phase 3: System setup (OS detection, package installation, composer)
-require_part "$PARTS_DIR/06-setup-system.sh"
-# shellcheck source=parts/06-setup-system.sh
-source "$PARTS_DIR/06-setup-system.sh"
+require_script "$SCRIPTS_DIR/06-setup-system.sh"
+# shellcheck source=scripts/06-setup-system.sh
+source "$SCRIPTS_DIR/06-setup-system.sh"
 
 # Phase 4: Build dependencies
-require_part "$PARTS_DIR/07-build-core-tools.sh"
-# shellcheck source=parts/07-build-core-tools.sh
-source "$PARTS_DIR/07-build-core-tools.sh"
+require_script "$SCRIPTS_DIR/07-build-core-tools.sh"
+# shellcheck source=scripts/07-build-core-tools.sh
+source "$SCRIPTS_DIR/07-build-core-tools.sh"
 
-require_part "$PARTS_DIR/08-build-image-libs.sh"
-# shellcheck source=parts/08-build-image-libs.sh
-source "$PARTS_DIR/08-build-image-libs.sh"
+require_script "$SCRIPTS_DIR/08-build-image-libs.sh"
+# shellcheck source=scripts/08-build-image-libs.sh
+source "$SCRIPTS_DIR/08-build-image-libs.sh"
 
-require_part "$PARTS_DIR/09-build-text-libs.sh"
-# shellcheck source=parts/09-build-text-libs.sh
-source "$PARTS_DIR/09-build-text-libs.sh"
+require_script "$SCRIPTS_DIR/09-build-text-libs.sh"
+# shellcheck source=scripts/09-build-text-libs.sh
+source "$SCRIPTS_DIR/09-build-text-libs.sh"
 
-require_part "$PARTS_DIR/10-build-extra-libs.sh"
-# shellcheck source=parts/10-build-extra-libs.sh
-source "$PARTS_DIR/10-build-extra-libs.sh"
+require_script "$SCRIPTS_DIR/10-build-extra-libs.sh"
+# shellcheck source=scripts/10-build-extra-libs.sh
+source "$SCRIPTS_DIR/10-build-extra-libs.sh"
 
 # Phase 5: Fonts
-require_part "$PARTS_DIR/11-build-fonts.sh"
-# shellcheck source=parts/11-build-fonts.sh
-source "$PARTS_DIR/11-build-fonts.sh"
+require_script "$SCRIPTS_DIR/11-build-fonts.sh"
+# shellcheck source=scripts/11-build-fonts.sh
+source "$SCRIPTS_DIR/11-build-fonts.sh"
 
 # Phase 6: Build ImageMagick
-require_part "$PARTS_DIR/12-build-imagemagick.sh"
-# shellcheck source=parts/12-build-imagemagick.sh
-source "$PARTS_DIR/12-build-imagemagick.sh"
+require_script "$SCRIPTS_DIR/12-build-imagemagick.sh"
+# shellcheck source=scripts/12-build-imagemagick.sh
+source "$SCRIPTS_DIR/12-build-imagemagick.sh"
 
 # Phase 7: Finalize
-require_part "$PARTS_DIR/13-finalize.sh"
-# shellcheck source=parts/13-finalize.sh
-source "$PARTS_DIR/13-finalize.sh"
+require_script "$SCRIPTS_DIR/13-finalize.sh"
+# shellcheck source=scripts/13-finalize.sh
+source "$SCRIPTS_DIR/13-finalize.sh"

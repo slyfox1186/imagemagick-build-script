@@ -6,7 +6,7 @@ box_out_banner "Build ImageMagick"
 
 find_git_repo "ImageMagick/ImageMagick" "1" "T"
 if build "imagemagick" "$version"; then
-    download "https://imagemagick.org/archive/releases/ImageMagick-$version.tar.lz" "imagemagick-$version.tar.lz"
+    download "https://github.com/ImageMagick/ImageMagick/archive/refs/tags/$version.tar.gz" "imagemagick-$version.tar.gz"
     execute autoreconf -fi
     [[ -d build/ ]] && rm -fr build/
     mkdir build/
