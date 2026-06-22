@@ -7,7 +7,7 @@ apt_pkgs() {
     local -a missing_packages=() available_packages=() unavailable_packages=()
 
     pkgs=(
-        "${extra_pkgs[@]}" alien autoconf autoconf-archive
+        "${extra_pkgs[@]}" autoconf autoconf-archive
         binutils bison build-essential cmake curl dbus-x11
         flex fontforge git gperf intltool jq libc6
         libx11-dev libxext-dev libxt-dev
@@ -17,7 +17,7 @@ apt_pkgs() {
         libhwy-dev libjxl-dev libnotify-bin librust-jpeg-decoder-dev
         librust-malloc-buf-dev libsharp-dev libticonv-dev
         libtool libtool-bin libyuv-dev libyuv-utils libyuv0
-        lsb-release lzip m4 meson nasm ninja-build php-dev
+        lsb-release m4 meson nasm ninja-build php-dev
         pkg-config python3-dev yasm zlib1g-dev
     )
 
