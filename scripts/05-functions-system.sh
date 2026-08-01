@@ -20,9 +20,13 @@ apt_required_packages() {
         pkg-config python3-dev xz-utils yasm zlib1g-dev
     )
 
+    # The legacy libjpeg62* packages were removed from this list with
+    # evidence: nothing consumes them (jpeg comes from the workspace-built
+    # libjpeg-turbo), and on Ubuntu 24.04 libjpeg62-dev conflicts with the
+    # libjpeg-turbo8-dev that the libgraphviz-dev chain requires.
     case "$OS" in
         Debian)
-            pkgs+=(libjpeg62-turbo libjpeg62-turbo-dev libjxl-dev)
+            pkgs+=(libjxl-dev)
             case "$VER_MAJOR" in
                 12) pkgs+=(libgegl-0.4-0 libcamd2) ;;
                 13) pkgs+=(libgegl-0.4-0t64 libcamd3) ;;
@@ -30,7 +34,6 @@ apt_required_packages() {
             esac
             ;;
         Ubuntu)
-            pkgs+=(libjpeg62 libjpeg62-dev)
             case "$VER_MAJOR" in
                 # libjxl-dev is not packaged for 22.04 (verified via the
                 # container availability gate), so builds there simply lack
