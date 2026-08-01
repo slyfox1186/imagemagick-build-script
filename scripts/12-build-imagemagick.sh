@@ -95,54 +95,62 @@ validate_magick_installation() {
 }
 
 stage_build_imagemagick() {
-    local tag ver commit staging
+    local tag ver commit staging fingerprint
 
     echo
     box_out_banner "Build ImageMagick"
 
+    # Dropped relative to the historical flag set, with evidence:
+    # --with-pkgconfigdir: ineffective upstream (Makefile.am overrides
+    #   pkgconfigdir to $(libdir)/pkgconfig; verified live - the .pc
+    #   files land in /usr/local/lib/pkgconfig regardless).
+    # --enable-delegate-build: means "look for delegates in in-tree
+    #   build subdirectories", which this external workspace is not.
+    # Most optional delegates (djvu, lqr, openexr, pango, raw, wmf, zip)
+    # default to yes and activate automatically once their dev packages
+    # are installed; fftw is the one that defaults to no.
+    local -a configure_args=(
+        --prefix=/usr/local
+        --enable-hdri
+        --enable-hugepages
+        --enable-legacy-support
+        --enable-opencl
+        --with-fftw
+        --with-fontpath=/usr/share/fonts/truetype
+        --with-dejavu-font-dir=/usr/share/fonts/truetype/dejavu
+        --with-gs-font-dir=/usr/share/fonts/ghostscript
+        --with-urw-base35-font-dir=/usr/share/fonts/type1/urw-base35
+        --with-fpx
+        --with-gslib
+        --with-gvc
+        --with-heic
+        --with-jemalloc
+        --with-modules
+        --with-perl
+        --with-pic
+        --with-png
+        --with-quantum-depth=16
+        --with-rsvg
+        --with-utilities
+        --without-autotrace
+        CFLAGS="$CFLAGS -DCL_TARGET_OPENCL_VERSION=300"
+        CXXFLAGS="$CXXFLAGS -DCL_TARGET_OPENCL_VERSION=300"
+        CPPFLAGS="$CPPFLAGS -I$workspace/include/CL"
+        PKG_CONFIG="$workspace/bin/pkg-config"
+    )
+    local fingerprint_file="$packages/imagemagick.configure.sha256"
+    fingerprint=$(printf '%s\n' "${configure_args[@]}" | sha256sum)
+    fingerprint="${fingerprint%% *}"
+
     resolve_into imagemagick
+    invalidate_marker_on_config_change imagemagick "$fingerprint_file" "$fingerprint"
     if build imagemagick "$ver"; then
         download "https://github.com/ImageMagick/ImageMagick/archive/refs/tags/$tag.tar.gz" "imagemagick-$ver.tar.gz"
         execute autoreconf -fi
         [[ -d build/ ]] && execute rm -fr build/
         mkdir build/
         cd build/ || fail "Cannot enter the ImageMagick build directory."
-        # Dropped relative to the historical flag set, with evidence:
-        # --with-pkgconfigdir: ineffective upstream (Makefile.am overrides
-        #   pkgconfigdir to $(libdir)/pkgconfig; verified live - the .pc
-        #   files land in /usr/local/lib/pkgconfig regardless).
-        # --enable-delegate-build: means "look for delegates in in-tree
-        #   build subdirectories", which this external workspace is not.
-        # Most optional delegates (djvu, lqr, openexr, pango, raw, wmf,
-        # zip) default to yes and activate automatically once their dev
-        # packages are installed; fftw is the one that defaults to no.
-        execute sh ../configure --prefix=/usr/local \
-                                --enable-hdri \
-                                --enable-hugepages \
-                                --enable-legacy-support \
-                                --enable-opencl \
-                                --with-fftw \
-                                --with-fontpath=/usr/share/fonts/truetype \
-                                --with-dejavu-font-dir=/usr/share/fonts/truetype/dejavu \
-                                --with-gs-font-dir=/usr/share/fonts/ghostscript \
-                                --with-urw-base35-font-dir=/usr/share/fonts/type1/urw-base35 \
-                                --with-fpx \
-                                --with-gslib \
-                                --with-gvc \
-                                --with-heic \
-                                --with-jemalloc \
-                                --with-modules \
-                                --with-perl \
-                                --with-pic \
-                                --with-png \
-                                --with-quantum-depth=16 \
-                                --with-rsvg \
-                                --with-utilities \
-                                --without-autotrace \
-                                CFLAGS="$CFLAGS -DCL_TARGET_OPENCL_VERSION=300" \
-                                CXXFLAGS="$CXXFLAGS -DCL_TARGET_OPENCL_VERSION=300" \
-                                CPPFLAGS="$CPPFLAGS -I$workspace/include/CL" \
-                                PKG_CONFIG="$workspace/bin/pkg-config"
+        execute sh ../configure "${configure_args[@]}"
         execute make "-j$cpu_threads"
 
         staging="$packages/imagemagick-staging"
@@ -153,5 +161,6 @@ stage_build_imagemagick() {
         exec_root ldconfig || fail "ldconfig failed after installing ImageMagick."
         validate_magick_installation "$ver"
         build_done imagemagick "$ver" "$commit"
+        record_configure_fingerprint "$fingerprint_file" "$fingerprint"
     fi
 }
