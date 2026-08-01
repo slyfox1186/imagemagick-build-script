@@ -128,13 +128,14 @@ stage_build_text_libs() {
     IFS='|' read -r tag ver commit <<<"$resolved"
     if build harfbuzz "$ver"; then
         download "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/$tag.tar.gz" "harfbuzz-$ver.tar.gz"
-        # glib/gobject stay ENABLED: the workspace harfbuzz.pc shadows the
-        # system one, and on Debian 13 librsvg's Requires chain resolves
-        # harfbuzz-gobject - with no workspace harfbuzz-gobject.pc the
-        # version conflict against the system's pinned harfbuzz broke the
-        # rsvg delegate probe (verified in config.log).
-        extracmds=("-D"{benchmark,cairo,docs,icu,introspection,tests}"=disabled"
-            "-D"{glib,gobject}"=enabled")
+        # glib/gobject must stay DISABLED: enabling them adds a glib
+        # Requires to the workspace harfbuzz.pc, which drags the system -L
+        # directory into consumers' link resolution - raqm then resolved
+        # the SYSTEM libharfbuzz.so (older, no hb_ft_font_get_ft_face)
+        # instead of the workspace static library (verified on Debian 13).
+        # The Debian-13 librsvg/harfbuzz-gobject probe conflict is solved
+        # in the ImageMagick stage with explicit RSVG_CFLAGS/RSVG_LIBS.
+        extracmds=("-D"{benchmark,cairo,docs,glib,gobject,icu,introspection,tests}"=disabled")
         execute meson setup build --prefix="$workspace" \
                                   --buildtype=release \
                                   --default-library=static \
