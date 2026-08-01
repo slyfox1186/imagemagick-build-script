@@ -5,7 +5,6 @@ stage_build_text_libs() {
     local resolved tag ver commit
     local -a extracmds iconv_cmake_flags
     local fontconfig_cflags fontconfig_ldflags _dir _inc
-    local PYTHON_CFLAGS PYTHON_LIBS
 
     # freetype tags use dashes (VER-2-13-3); the recorded version is the
     # dotted form, which is a no-op on the marker-reuse path.
@@ -36,14 +35,11 @@ stage_build_text_libs() {
     if build libxml2 "$ver"; then
         download "https://gitlab.gnome.org/GNOME/libxml2/-/archive/$tag/libxml2-$tag.tar.bz2" \
             "libxml2-$ver.tar.bz2"
-        if command -v python3.11-config &>/dev/null; then
-            PYTHON_CFLAGS=$(python3.11-config --cflags)
-            PYTHON_LIBS=$(python3.11-config --ldflags)
-        else
-            PYTHON_CFLAGS=$(python3.12-config --cflags)
-            PYTHON_LIBS=$(python3.12-config --ldflags)
-        fi
-        export PYTHON_CFLAGS PYTHON_LIBS
+        # This is a pure CMake build: the old code additionally ran the
+        # Autotools autogen.sh bootstrap (pointless before cmake) and probed
+        # python3.11/3.12-config - a hard failure on Ubuntu 22.04, which
+        # ships only python3.10. ImageMagick needs no libxml2 python
+        # bindings, so they are pinned OFF regardless of upstream defaults.
 
         # Detect standalone GNU libiconv (vs glibc built-in) so cmake links it properly
         iconv_cmake_flags=()
@@ -62,11 +58,11 @@ stage_build_text_libs() {
             fi
         done
 
-        execute sh autogen.sh
         execute cmake -B build -DCMAKE_INSTALL_PREFIX="$workspace" \
                                -DCMAKE_BUILD_TYPE=Release \
                                -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE \
                                -DBUILD_SHARED_LIBS=OFF \
+                               -DLIBXML2_WITH_PYTHON=OFF \
                                "${iconv_cmake_flags[@]}" \
                                -G Ninja -Wno-dev
         execute ninja "-j$cpu_threads" -C build
@@ -82,7 +78,7 @@ stage_build_text_libs() {
         download "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/$tag/fontconfig-$tag.tar.bz2"
 
         # Explicitly add paths for zlib and lzma, and link them
-        fontconfig_ldflags="$LDFLAGS -DLIBXML_STATIC -L/usr/lib/x86_64-linux-gnu -lz -llzma"
+        fontconfig_ldflags="$LDFLAGS -DLIBXML_STATIC -L/usr/lib/$MULTIARCH_TUPLE -lz -llzma"
         fontconfig_cflags="$CFLAGS -I/usr/include -I/usr/include/libxml2"
 
         # Update the pkg-config file to include LIBXML_STATIC
@@ -106,12 +102,6 @@ stage_build_text_libs() {
         execute make "-j$cpu_threads"
         execute make install
         build_done fontconfig "$ver" "$commit"
-    fi
-
-    # c2man is optional - it's an old tool for generating man pages from C comments
-    # Skip it as it has compatibility issues with modern systems
-    if command -v c2man &>/dev/null; then
-        log "c2man already available, skipping build"
     fi
 
     resolved=$(resolve_pkg_version fribidi resolve_latest_git_tag \

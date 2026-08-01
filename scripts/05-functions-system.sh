@@ -4,20 +4,20 @@
 apt_pkgs() {
     local pkg
     local -a pkgs=() extra_pkgs=("$@")
-    local -a missing_packages=() available_packages=() unavailable_packages=()
+    local -a missing_packages=() unavailable_packages=()
 
     pkgs=(
         "${extra_pkgs[@]}" autoconf autoconf-archive
-        binutils bison build-essential cmake curl dbus-x11
+        binutils bison build-essential cmake curl
         flex fontforge git gperf intltool jq libc6
         libx11-dev libxext-dev libxt-dev
         libcpu-features-dev
         libfont-ttf-perl libgc-dev libgc1 libgegl-common
-        libgl2ps-dev libglib2.0-dev libgs-dev libheif-dev
-        libhwy-dev libjxl-dev libnotify-bin librust-jpeg-decoder-dev
+        libgl2ps-dev libglib2.0-dev libgraphviz-dev libgs-dev libheif-dev
+        libhwy-dev libjxl-dev librsvg2-dev librust-jpeg-decoder-dev
         librust-malloc-buf-dev libsharp-dev libticonv-dev
         libtool libtool-bin libyuv-dev libyuv-utils libyuv0
-        lsb-release m4 meson nasm ninja-build php-dev
+        lsb-release m4 meson nasm ninja-build
         pkg-config python3-dev yasm zlib1g-dev
     )
 
@@ -33,42 +33,45 @@ apt_pkgs() {
         fi
     done
 
-    # Check the availability of missing packages and categorize them
+    if [[ "${#missing_packages[@]}" -eq 0 ]]; then
+        log "All required APT packages are already installed."
+        return 0
+    fi
+
+    # Refresh the package index once, then verify every missing package is
+    # actually installable BEFORE mutating anything: a missing package means
+    # a silently degraded ImageMagick (failed configure probes), so this
+    # fails closed instead of installing a partial set.
+    exec_root apt-get update || fail "apt-get update failed. Line: ${LINENO}"
+
     for pkg in "${missing_packages[@]}"; do
-        if apt-cache show "$pkg" >/dev/null 2>&1; then
-            available_packages+=("$pkg")
-        else
+        if ! apt-cache show "$pkg" >/dev/null 2>&1; then
             unavailable_packages+=("$pkg")
         fi
     done
 
-    # Print unavailable packages
     if [[ "${#unavailable_packages[@]}" -gt 0 ]]; then
-        echo
-        warn "Unavailable packages:"
-        printf "          %s\n" "${unavailable_packages[@]}"
+        fail "Required APT packages are unavailable on $OS $VER: ${unavailable_packages[*]}"
     fi
 
-    # Install available missing packages
-    if [[ "${#available_packages[@]}" -gt 0 ]]; then
-        echo
-        log "Installing available missing packages:"
-        printf "       %s\n" "${available_packages[@]}"
-        echo
-        exec_root apt-get update || fail "apt-get update failed. Line: ${LINENO}"
-        exec_root apt-get install -y "${available_packages[@]}" || fail "apt-get install failed. Line: ${LINENO}"
-        exec_root apt-get -y autoremove || warn "apt-get autoremove failed, continuing..."
-        echo
-    else
-        log "No missing packages to install or all missing packages are unavailable."
-    fi
+    echo
+    log "Installing missing packages:"
+    printf "       %s\n" "${missing_packages[@]}"
+    echo
+    # --no-remove: refuse any solver-proposed removal of existing packages.
+    # No autoremove: removing "no longer needed" packages is unrelated,
+    # destructive host mutation and is not this script's business.
+    exec_root env DEBIAN_FRONTEND=noninteractive \
+        apt-get install -y --no-remove "${missing_packages[@]}" ||
+        fail "apt-get install failed. Line: ${LINENO}"
+    echo
 }
 
 debian_version() {
     case "$VER_MAJOR" in
         12) apt_pkgs libgegl-0.4-0 libcamd2 ;;
         13) apt_pkgs libgegl-0.4-0t64 libcamd3 ;;
-        *)  fail "Could not detect the Debian version '$VER'. Supported: 12, 13. Line: ${LINENO}" ;;
+        *)  fail "Unsupported Debian version '$VER'. Supported: 12, 13. Line: ${LINENO}" ;;
     esac
 }
 
@@ -84,7 +87,6 @@ get_os_version() {
         case "${ID:-}" in
             debian) OS="Debian" ;;
             ubuntu) OS="Ubuntu" ;;
-            arch) OS="Arch" ;;
             *) OS="${NAME:-${ID:-}}" ;;
         esac
         VER="${VERSION_ID:-}"

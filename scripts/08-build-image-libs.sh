@@ -77,19 +77,6 @@ stage_build_image_libs() {
         build_done libpng "$ver" "$commit"
     fi
 
-    if [[ "$OS" == "Ubuntu" ]]; then
-        ver="1.2.59"
-        if build libpng12 "$ver"; then
-            download "https://github.com/pnggroup/libpng/archive/refs/tags/v$ver.tar.gz" "libpng12-$ver.tar.gz"
-            execute autoreconf -fi
-            execute sh configure --prefix="$workspace" --with-pic
-            execute make "-j$cpu_threads"
-            execute make install
-            execute rm "$workspace/include/png.h"
-            build_done libpng12 "$ver"
-        fi
-    fi
-
     resolved=$(resolve_pkg_version libwebp resolve_latest_git_tag \
         "https://chromium.googlesource.com/webm/libwebp" '^v[0-9]+\.[0-9]+\.[0-9]+$' '' 'v') ||
         fail "Failed to resolve the latest libwebp version."

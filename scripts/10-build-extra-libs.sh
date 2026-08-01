@@ -52,7 +52,6 @@ stage_build_extra_libs() {
                 -G Ninja -Wno-dev
         execute ninja "-j$cpu_threads" -C build
         execute ninja -C build install
-        execute mv "$workspace/lib/pkgconfig/libpng.pc" "$workspace/lib/pkgconfig/libpng-12.pc"
         build_done opencl-sdk "$ver" "$commit"
     fi
 
