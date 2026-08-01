@@ -155,9 +155,15 @@ refresh_build_context() {
     current=$(compute_build_context)
     if [[ -f "$ctx_file" ]] && ! printf '%s\n' "$current" | cmp -s -- - "$ctx_file"; then
         warn "The build context changed since the last run (compiler, flags, OS, or CPU)."
-        warn "Invalidating all completion markers so everything rebuilds consistently."
+        warn "Invalidating all completion markers AND the workspace so everything rebuilds consistently."
         diff -u -- "$ctx_file" <(printf '%s\n' "$current") >>"$BUILD_LOG" 2>&1
         rm -f -- "$packages"/*.done
+        # The workspace must go with the markers: stale artifacts from the
+        # old context would otherwise feed later packages' configure probes
+        # with libraries the new sequential build has not produced yet
+        # (observed live: libtiff picking up a previous context's libwebp).
+        safe_remove_tree "$workspace" "$cwd"
+        mkdir -p -- "$workspace" || fail "Cannot recreate the workspace after context invalidation."
     fi
     tmp=$(mktemp "$cwd/.context.XXXXXX") || fail "Cannot record the build context in '$cwd'."
     printf '%s\n' "$current" >"$tmp"
