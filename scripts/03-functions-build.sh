@@ -516,10 +516,12 @@ git_clone() {
     cd "$target_directory" || fail "Failed to cd into \"$target_directory\"."
 }
 
+# One-line installed-version summary; skipped when the build stage already
+# displayed and validated the full version block this run.
 show_version() {
-    echo
-    log "ImageMagick's new version is:"
-    echo
-    /usr/local/bin/magick -version ||
+    [[ -n "${MAGICK_VALIDATED:-}" ]] && return 0
+    local version_line
+    version_line=$(/usr/local/bin/magick -version | head -n 1) ||
         fail "Failure to execute the command: /usr/local/bin/magick -version"
+    log "Installed: ${version_line#Version: }"
 }
