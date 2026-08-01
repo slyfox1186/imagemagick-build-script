@@ -165,6 +165,9 @@ run_unit_in_sandbox() {
         source '$repo_root/scripts/01-variables.sh'
         source '$repo_root/scripts/02-functions-core.sh'
         source '$repo_root/scripts/03-functions-build.sh'
+        source '$repo_root/scripts/04-functions-version.sh'
+        source '$repo_root/scripts/05-functions-system.sh'
+        source '$repo_root/scripts/06-setup-system.sh'
         $body
     " >unit-out.txt 2>unit-err.txt </dev/null)
     printf '%s' "$?" >"$sandbox/status.txt"
@@ -699,6 +702,64 @@ UNIT
     rm -rf -- "$sandbox"
 }
 
+# --- Phase 5: APT hygiene and OS support ------------------------------------
+
+test_apt_fails_closed_on_unavailable_required_package() {
+    local label="a required-but-unavailable APT package aborts before any install"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        OS=Ubuntu
+        VER=24.04
+        dpkg-query() { printf 'unknown ok not-installed\n'; return 1; }
+        apt-cache() { [[ "$2" == "libsharp-dev" ]] && return 100; return 0; }
+        exec_root() { printf 'EXEC: %s\n' "$*" >> exec.log; }
+        apt_pkgs
+        exit 7
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" == "0" || "$status" == "7" ]]; then
+        tap_fail "$label" "apt_pkgs did not abort (status $status)"
+    elif ! grep -q "unavailable" "$sandbox/unit-err.txt"; then
+        tap_fail "$label" "the failure does not name unavailable packages"
+    elif grep -q "apt-get install" "$sandbox/exec.log" 2>/dev/null; then
+        tap_fail "$label" "apt-get install ran despite an unavailable required package"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_no_autoremove_anywhere() {
+    local label="no APT autoremove/remove/purge command exists in the scripts"
+    if grep -rnE 'apt-get[^|]*(autoremove|purge| remove )' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh >/dev/null 2>&1; then
+        tap_fail "$label" "$(grep -rnE 'apt-get[^|]*(autoremove|purge| remove )' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh)"
+    else
+        tap_ok "$label"
+    fi
+}
+
+test_unsupported_distro_fails_before_mutation() {
+    local label="an unsupported distribution fails before any package work"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        get_os_version() { OS=Arch; VER=1; }
+        apt_pkgs() { echo "apt_pkgs must not run" >&2; exit 99; }
+        stage_setup_system
+        exit 7
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" == "0" || "$status" == "7" || "$status" == "99" ]]; then
+        tap_fail "$label" "unsupported distro was not rejected (status $status)"
+    elif ! grep -q "Unsupported distribution" "$sandbox/unit-err.txt"; then
+        tap_fail "$label" "no clear unsupported-distribution message"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
 # --- Phase 3: archive validation, transactional cache, markers -------------
 
 test_tar_validation_accepts_benign_archive() {
@@ -1121,6 +1182,9 @@ test_tag_selection_survives_large_input_under_pipefail
 test_resolve_reuses_marker_without_network
 test_latest_flag_forces_resolution
 test_git_clone_verifies_pinned_commit
+test_apt_fails_closed_on_unavailable_required_package
+test_no_autoremove_anywhere
+test_unsupported_distro_fails_before_mutation
 
 printf '1..%d\n' "$test_count"
 if [[ "$fail_count" -gt 0 ]]; then

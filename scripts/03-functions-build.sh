@@ -41,12 +41,11 @@ package_artifacts_present() {
         libtool)     [[ -x "$workspace/bin/libtool" ]] ;;
         pkg-config)  [[ -x "$workspace/bin/pkg-config" ]] ;;
         libtiff)     workspace_pc_exists libtiff-4 ;;
-        jpeg-turbo-git|libjpeg-turbo) workspace_lib_exists libjpeg ;;
-        libfpx-git|libfpx) workspace_lib_exists libfpx ;;
+        libjpeg-turbo) workspace_lib_exists libjpeg ;;
+        libfpx)      workspace_lib_exists libfpx ;;
         ghostscript) [[ -x "$workspace/bin/gs" ]] ;;
         libpng)      workspace_pc_exists libpng16 ;;
-        libpng12)    workspace_lib_exists libpng12 ;;
-        libwebp-git|libwebp) workspace_lib_exists libwebp ;;
+        libwebp)     workspace_lib_exists libwebp ;;
         freetype)    workspace_pc_exists freetype2 ;;
         libxml2)     workspace_pc_exists libxml-2.0 ;;
         fontconfig)  workspace_pc_exists fontconfig ;;
@@ -54,7 +53,7 @@ package_artifacts_present() {
         harfbuzz)    workspace_pc_exists harfbuzz ;;
         raqm)        workspace_pc_exists raqm ;;
         jemalloc)    workspace_pc_exists jemalloc ;;
-        opencl-sdk-git|opencl-sdk) workspace_lib_exists libOpenCL ;;
+        opencl-sdk)  workspace_lib_exists libOpenCL ;;
         openjpeg)    workspace_pc_exists libopenjp2 ;;
         lcms2)       workspace_pc_exists lcms2 ;;
         dejavu-fonts|source-code-pro|source-sans-pro|source-serif-pro|roboto|Fira)
