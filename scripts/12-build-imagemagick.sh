@@ -113,11 +113,15 @@ stage_build_imagemagick() {
         #   files land in /usr/local/lib/pkgconfig regardless).
         # --enable-delegate-build: means "look for delegates in in-tree
         #   build subdirectories", which this external workspace is not.
+        # Most optional delegates (djvu, lqr, openexr, pango, raw, wmf,
+        # zip) default to yes and activate automatically once their dev
+        # packages are installed; fftw is the one that defaults to no.
         execute sh ../configure --prefix=/usr/local \
                                 --enable-hdri \
                                 --enable-hugepages \
                                 --enable-legacy-support \
                                 --enable-opencl \
+                                --with-fftw \
                                 --with-fontpath=/usr/share/fonts/truetype \
                                 --with-dejavu-font-dir=/usr/share/fonts/truetype/dejavu \
                                 --with-gs-font-dir=/usr/share/fonts/ghostscript \
