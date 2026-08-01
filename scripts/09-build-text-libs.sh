@@ -1,6 +1,35 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 
+# The workspace harfbuzz.pc shadows the system one, so any SYSTEM .pc that
+# exact-pins the system harfbuzz version cannot resolve. On Debian 13,
+# librsvg's Requires chain reaches harfbuzz-gobject ("requires harfbuzz =
+# 10.2.0"), which silently killed ImageMagick's rsvg delegate probe
+# (upstream configure.ac zeroes RSVG_CFLAGS/RSVG_LIBS, so the precious-
+# variable override is impossible). This companion shim forwards to the
+# system library at our harfbuzz version, keeping the chain consistent
+# WITHOUT adding Requires to harfbuzz.pc itself (doing that dragged the
+# system -L dir into raqm's link resolution and broke it).
+ensure_harfbuzz_gobject_shim() {
+    local hb_version="$1" hb_pc_dir
+    local sys_gobject_pc="/usr/lib/$MULTIARCH_TUPLE/pkgconfig/harfbuzz-gobject.pc"
+    [[ -f "$sys_gobject_pc" ]] || return 0
+    for hb_pc_dir in "$workspace/lib/pkgconfig" "$workspace/lib64/pkgconfig" \
+        "$workspace/lib/$MULTIARCH_TUPLE/pkgconfig"; do
+        [[ -f "$hb_pc_dir/harfbuzz.pc" ]] || continue
+        cat >"$hb_pc_dir/harfbuzz-gobject.pc" <<SHIM
+Name: harfbuzz-gobject (workspace compatibility shim)
+Description: Forwards to the system harfbuzz-gobject while the workspace shadows harfbuzz
+Version: $hb_version
+Requires: harfbuzz
+Libs: -L/usr/lib/$MULTIARCH_TUPLE -lharfbuzz-gobject
+Cflags: -I/usr/include/harfbuzz
+SHIM
+        log "Wrote the harfbuzz-gobject compatibility shim to $hb_pc_dir"
+        return 0
+    done
+}
+
 stage_build_text_libs() {
     local resolved tag ver commit
     local -a extracmds iconv_cmake_flags
@@ -145,6 +174,7 @@ stage_build_text_libs() {
         execute ninja -C build install
         build_done harfbuzz "$ver" "$commit"
     fi
+    ensure_harfbuzz_gobject_shim "$ver"
 
     resolved=$(resolve_pkg_version raqm resolve_latest_git_tag \
         "https://github.com/host-oman/libraqm.git" '^v[0-9]+\.[0-9]+\.[0-9]+$' '' 'v') ||
