@@ -47,7 +47,7 @@ apt_required_packages() {
             case "$VER_MAJOR" in
                 12) pkgs+=(libgegl-0.4-0 libcamd2) ;;
                 13) pkgs+=(libgegl-0.4-0t64 libcamd3) ;;
-                *) fail "Unsupported Debian version '$VER'. Supported: 12, 13." ;;
+                *) fail "Unsupported Debian release '$VER'. Supported: 12 (bookworm) through 13 (trixie)." ;;
             esac
             ;;
         Ubuntu)
@@ -57,7 +57,7 @@ apt_required_packages() {
                 # the optional JPEG-XL delegate.
                 22) ;;
                 24) pkgs+=(libjxl-dev) ;;
-                *) fail "Unsupported Ubuntu version '$VER'. Supported: 22.04, 24.04." ;;
+                *) fail "Unsupported Ubuntu release '$VER'. Supported: 22.04 (jammy) through 24.04 (noble)." ;;
             esac
             ;;
         *) fail "Unsupported distribution '$OS'." ;;
@@ -70,8 +70,12 @@ apt_package_installed() {
     dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "ok installed"
 }
 
-apt_get() {
-    exec_root env DEBIAN_FRONTEND=noninteractive apt-get "$@"
+# All privileged package-manager work goes through `apt` (never apt-get,
+# per project policy). Behavior verified live: `apt install` accepts
+# --no-remove, and `apt show` exits 0/100 for available/missing packages
+# exactly like apt-cache show did.
+apt_cmd() {
+    exec_root env DEBIAN_FRONTEND=noninteractive apt "$@"
 }
 
 apt_pkgs() {
@@ -99,10 +103,10 @@ apt_pkgs() {
     # actually installable BEFORE mutating anything: a missing package means
     # a silently degraded ImageMagick (failed configure probes), so this
     # fails closed instead of installing a partial set.
-    apt_get update || fail "apt-get update failed. Line: ${LINENO}"
+    apt_cmd update || fail "apt update failed. Line: ${LINENO}"
 
     for pkg in "${missing_packages[@]}"; do
-        if ! apt-cache show "$pkg" >/dev/null 2>&1; then
+        if ! apt show "$pkg" >/dev/null 2>&1; then
             unavailable_packages+=("$pkg")
         fi
     done
@@ -125,7 +129,7 @@ apt_pkgs() {
     done
     if [[ "${#legacy_conflicts[@]}" -gt 0 ]]; then
         warn "Removing legacy dev package(s) installed by older versions of this script: ${legacy_conflicts[*]}"
-        apt_get remove -y "${legacy_conflicts[@]}" ||
+        apt_cmd remove -y "${legacy_conflicts[@]}" ||
             fail "Failed to remove the legacy package(s): ${legacy_conflicts[*]}"
     fi
 
@@ -136,15 +140,19 @@ apt_pkgs() {
     # --no-remove: refuse any solver-proposed removal of existing packages.
     # No autoremove: removing "no longer needed" packages is unrelated,
     # destructive host mutation and is not this script's business.
-    apt_get install -y --no-remove "${missing_packages[@]}" ||
-        fail "apt-get install failed. Line: ${LINENO}"
+    apt_cmd install -y --no-remove "${missing_packages[@]}" ||
+        fail "apt install failed. Line: ${LINENO}"
     echo
 }
 
+# Sets OS (Debian/Ubuntu), VER (numeric release), and CODENAME (bookworm,
+# trixie, jammy, noble, ...). Debian testing/unstable has no VERSION_ID,
+# so VER stays empty there and the release check rejects it.
 get_os_version() {
     if command -v lsb_release &>/dev/null; then
         OS=$(lsb_release -si)
         VER=$(lsb_release -sr)
+        CODENAME=$(lsb_release -sc)
     elif [[ -f /etc/os-release ]]; then
         # The sourced file's variables (ID, NAME, VERSION_ID) only exist at
         # runtime, so ShellCheck must not follow or analyze the host's copy.
@@ -156,6 +164,7 @@ get_os_version() {
             *) OS="${NAME:-${ID:-}}" ;;
         esac
         VER="${VERSION_ID:-}"
+        CODENAME="${VERSION_CODENAME:-}"
     else
         fail "Failed to define the \$OS and/or \$VER variables. Line: ${LINENO}"
     fi

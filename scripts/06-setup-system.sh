@@ -9,12 +9,14 @@ stage_setup_system() {
     # GET THE OS NAME
     get_os_version
     VER_MAJOR="${VER%%.*}"
+    log "Detected OS: $OS $VER${CODENAME:+ ($CODENAME)}"
 
     # ONLY DEBIAN AND UBUNTU ARE SUPPORTED; ANYTHING ELSE FAILS BEFORE ANY
-    # PACKAGES ARE INSTALLED OR BUILD WORK STARTS.
+    # PACKAGES ARE INSTALLED OR BUILD WORK STARTS. THE PER-RELEASE PACKAGE
+    # LIST (SOME NAMES DIFFER BY RELEASE) LIVES IN apt_required_packages.
     case "$OS" in
         Debian|Ubuntu) apt_pkgs ;;
-        *) fail "Unsupported distribution '$OS'. Supported: Debian 12/13, Ubuntu 22.04/24.04." ;;
+        *) fail "Unsupported distribution '$OS'. Supported: Debian 12 (bookworm) through 13 (trixie), Ubuntu 22.04 (jammy) through 24.04 (noble)." ;;
     esac
 
     # ImageMagick's shared libraries (libMagickCore/libMagickWand) are built from

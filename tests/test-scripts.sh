@@ -834,7 +834,7 @@ test_apt_fails_closed_on_unavailable_required_package() {
         VER=24.04
         VER_MAJOR=24
         dpkg-query() { printf 'unknown ok not-installed\n'; return 1; }
-        apt-cache() { [[ "$2" == "libsharp-dev" ]] && return 100; return 0; }
+        apt() { [[ "$1" == "show" && "$2" == "libsharp-dev" ]] && return 100; return 0; }
         exec_root() { printf 'EXEC: %s\n' "$*" >> exec.log; }
         apt_pkgs
         exit 7
@@ -844,8 +844,8 @@ UNIT
         tap_fail "$label" "apt_pkgs did not abort (status $status)"
     elif ! grep -q "unavailable" "$sandbox/unit-err.txt"; then
         tap_fail "$label" "the failure does not name unavailable packages"
-    elif grep -q "apt-get install" "$sandbox/exec.log" 2>/dev/null; then
-        tap_fail "$label" "apt-get install ran despite an unavailable required package"
+    elif grep -q "apt install" "$sandbox/exec.log" 2>/dev/null; then
+        tap_fail "$label" "apt install ran despite an unavailable required package"
     else
         tap_ok "$label"
     fi
@@ -855,16 +855,17 @@ UNIT
 test_no_autoremove_anywhere() {
     local label="no APT autoremove/purge exists; removals only via the legacy allowlist"
     local removals
-    if grep -rnE 'apt[-_]get[^|]*(autoremove|purge)' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh >/dev/null 2>&1; then
-        tap_fail "$label" "$(grep -rnE 'apt[-_]get[^|]*(autoremove|purge)' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh)"
+    # The patterns cover every spelling: apt, apt-get, and the apt_cmd wrapper.
+    if grep -rnE 'apt[-_a-z]*[^|]*(autoremove|purge)' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh >/dev/null 2>&1; then
+        tap_fail "$label" "$(grep -rnE 'apt[-_a-z]*[^|]*(autoremove|purge)' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh)"
         return
     fi
     # The single permitted removal is the legacy-conflict migration, which
     # must only ever operate on the fixed allowlist array.
-    removals=$(grep -rnE 'apt[-_]get remove' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh)
+    removals=$(grep -rnE 'apt[-_a-z]* remove ' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh)
     if [[ "$(printf '%s\n' "$removals" | grep -c .)" != "1" ]] ||
         ! printf '%s\n' "$removals" | grep -q 'legacy_conflicts'; then
-        tap_fail "$label" "unexpected apt-get remove usage: $removals"
+        tap_fail "$label" "unexpected apt remove usage: $removals"
     else
         tap_ok "$label"
     fi
