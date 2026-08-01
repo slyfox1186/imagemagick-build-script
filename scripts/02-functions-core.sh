@@ -4,7 +4,7 @@
 exit_fn() {
     echo
     echo -e "${GREEN}[INFO]${NC} Make sure to ${YELLOW}star${NC} this repository to show your support!"
-    echo -e "${GREEN}[INFO]${NC} https://github.com/slyfox1186/script-repo"
+    echo -e "${GREEN}[INFO]${NC} https://github.com/slyfox1186/imagemagick-build-script"
     echo
     exit 0
 }
@@ -12,7 +12,7 @@ exit_fn() {
 fail() {
     echo >&2
     echo -e "${RED}[ERROR]${NC} $1\n" >&2
-    echo -e "${GREEN}[INFO]${NC} For help or to report a bug, create an issue at: https://github.com/slyfox1186/script-repo/issues" >&2
+    echo -e "${GREEN}[INFO]${NC} For help or to report a bug, create an issue at: https://github.com/slyfox1186/imagemagick-build-script/issues" >&2
     echo >&2
     exit 1
 }
