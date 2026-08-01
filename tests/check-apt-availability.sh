@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Availability gate: verifies that EVERY required APT package for the
 # detected OS/release exists in the package archive. Read-only - run
-# `apt-get update` first so the package index is current.
+# `apt update` first so the package index is current.
 # Intended for fresh Debian/Ubuntu containers and CI.
 
 set -o pipefail
@@ -27,7 +27,7 @@ count=0
 while IFS= read -r pkg; do
     [[ -n "$pkg" ]] || continue
     count=$((count + 1))
-    if ! apt-cache show "$pkg" >/dev/null 2>&1; then
+    if ! apt show "$pkg" >/dev/null 2>&1; then
         unavailable+=("$pkg")
     fi
 done <<<"$pkg_list"

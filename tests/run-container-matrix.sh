@@ -45,8 +45,8 @@ ensure_container() {
         docker exec "$name" bash -c '
             set -e
             export DEBIAN_FRONTEND=noninteractive
-            apt-get update -q >/dev/null
-            apt-get install -y -q sudo curl git ca-certificates python3 \
+            apt update -q >/dev/null
+            apt install -y -q sudo curl git ca-certificates python3 \
                 shellcheck xz-utils bzip2 >/dev/null
             id builder >/dev/null 2>&1 || useradd -m -s /bin/bash builder
             printf "builder ALL=(ALL) NOPASSWD: ALL\n" > /etc/sudoers.d/builder
@@ -68,7 +68,7 @@ run_level() {
                 bash -c 'python3 run_linter.py && bash tests/test-scripts.sh'
             ;;
         apt)
-            docker exec "$name" bash -c 'apt-get update -q >/dev/null' &&
+            docker exec "$name" bash -c 'apt update -q >/dev/null' &&
                 docker exec -u builder -w /home/builder/repo -e HOME=/home/builder "$name" \
                     bash tests/check-apt-availability.sh
             ;;

@@ -8,8 +8,14 @@ installing the result to `/usr/local`.
 
 | OS | Releases | Architecture |
 |---|---|---|
-| Debian | 12, 13 | x86_64 only |
-| Ubuntu | 22.04, 24.04 | x86_64 only |
+| Debian | 12 (bookworm), 13 (trixie) | x86_64 only |
+| Ubuntu | 22.04 (jammy), 24.04 (noble) | x86_64 only |
+
+The script detects the distribution and release itself and selects the
+matching APT package set - a few package names differ between releases
+(for example `libgegl-0.4-0` vs `libgegl-0.4-0t64`, `libcamd2` vs
+`libcamd3`, and `libjxl-dev`, which Ubuntu 22.04 does not package).
+All package operations use the `apt` command.
 
 Anything else fails up front, before packages are installed or build work
 starts. Ubuntu 20.04 is outside this project's tested support (its standard
@@ -23,7 +29,7 @@ that built them.
   everything is built unprivileged, and privilege is used only for APT
   installs, font installation, publishing the validated install tree, and
   `ldconfig`.
-- `git` and `curl` (`sudo apt-get install git curl`). Every other build
+- `git` and `curl` (`sudo apt install git curl`). Every other build
   tool is installed by the script through APT.
 
 ## Quick start
