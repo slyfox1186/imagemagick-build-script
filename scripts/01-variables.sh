@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# shellcheck disable=SC2034
 
 # SET GLOBAL VARIABLES
 script_ver=1.2.0
