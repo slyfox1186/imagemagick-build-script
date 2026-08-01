@@ -31,16 +31,13 @@ SHIM
 }
 
 stage_build_text_libs() {
-    local resolved tag ver commit
+    local tag ver commit
     local -a extracmds iconv_cmake_flags
     local fontconfig_cflags fontconfig_ldflags _dir _inc
 
     # freetype tags use dashes (VER-2-13-3); the recorded version is the
     # dotted form, which is a no-op on the marker-reuse path.
-    resolved=$(resolve_pkg_version freetype resolve_latest_git_tag \
-        "https://gitlab.freedesktop.org/freetype/freetype.git" '^VER-[0-9]+(-[0-9]+)+$' '' 'VER-') ||
-        fail "Failed to resolve the latest freetype version."
-    IFS='|' read -r tag ver commit <<<"$resolved"
+    resolve_into freetype
     ver="${ver//-/.}"
     if build freetype "$ver"; then
         download "https://gitlab.freedesktop.org/freetype/freetype/-/archive/$tag/freetype-$tag.tar.bz2" \
@@ -57,10 +54,7 @@ stage_build_text_libs() {
         build_done freetype "$ver" "$commit"
     fi
 
-    resolved=$(resolve_pkg_version libxml2 resolve_latest_git_tag \
-        "https://gitlab.gnome.org/GNOME/libxml2.git" '^v[0-9]+\.[0-9]+\.[0-9]+$' '' 'v') ||
-        fail "Failed to resolve the latest libxml2 version."
-    IFS='|' read -r tag ver commit <<<"$resolved"
+    resolve_into libxml2
     if build libxml2 "$ver"; then
         download "https://gitlab.gnome.org/GNOME/libxml2/-/archive/$tag/libxml2-$tag.tar.bz2" \
             "libxml2-$ver.tar.bz2"
@@ -99,10 +93,7 @@ stage_build_text_libs() {
         build_done libxml2 "$ver" "$commit"
     fi
 
-    resolved=$(resolve_pkg_version fontconfig resolve_latest_git_tag \
-        "https://gitlab.freedesktop.org/fontconfig/fontconfig.git" '^[0-9]+\.[0-9]+(\.[0-9]+)?$') ||
-        fail "Failed to resolve the latest fontconfig version."
-    IFS='|' read -r tag ver commit <<<"$resolved"
+    resolve_into fontconfig
     if build fontconfig "$ver"; then
         download "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/$tag/fontconfig-$tag.tar.bz2"
 
@@ -133,10 +124,7 @@ stage_build_text_libs() {
         build_done fontconfig "$ver" "$commit"
     fi
 
-    resolved=$(resolve_pkg_version fribidi resolve_latest_git_tag \
-        "https://github.com/fribidi/fribidi.git" '^v[0-9]+\.[0-9]+(\.[0-9]+)?$' '' 'v') ||
-        fail "Failed to resolve the latest fribidi version."
-    IFS='|' read -r tag ver commit <<<"$resolved"
+    resolve_into fribidi
     if build fribidi "$ver"; then
         download "https://github.com/fribidi/fribidi/archive/refs/tags/$tag.tar.gz" "fribidi-$ver.tar.gz"
         extracmds=("-D"{docs,tests}"=false")
@@ -151,10 +139,7 @@ stage_build_text_libs() {
         build_done fribidi "$ver" "$commit"
     fi
 
-    resolved=$(resolve_pkg_version harfbuzz resolve_latest_git_tag \
-        "https://github.com/harfbuzz/harfbuzz.git" '^[0-9]+\.[0-9]+\.[0-9]+$') ||
-        fail "Failed to resolve the latest harfbuzz version."
-    IFS='|' read -r tag ver commit <<<"$resolved"
+    resolve_into harfbuzz
     if build harfbuzz "$ver"; then
         download "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/$tag.tar.gz" "harfbuzz-$ver.tar.gz"
         # glib/gobject must stay DISABLED: enabling them adds a glib
@@ -176,10 +161,7 @@ stage_build_text_libs() {
     fi
     ensure_harfbuzz_gobject_shim "$ver"
 
-    resolved=$(resolve_pkg_version raqm resolve_latest_git_tag \
-        "https://github.com/host-oman/libraqm.git" '^v[0-9]+\.[0-9]+\.[0-9]+$' '' 'v') ||
-        fail "Failed to resolve the latest raqm version."
-    IFS='|' read -r tag ver commit <<<"$resolved"
+    resolve_into raqm
     if build raqm "$ver"; then
         download "https://codeload.github.com/host-oman/libraqm/tar.gz/refs/tags/$tag" "raqm-$ver.tar.gz"
         execute meson setup build --prefix="$workspace" \

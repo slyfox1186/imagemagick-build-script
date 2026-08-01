@@ -23,27 +23,16 @@ stage_install_fonts() {
     # no built .ttf/.otf at HEAD (verified), so cloning it never installed
     # a usable font. The fonts-dejavu-core APT package provides
     # /usr/share/fonts/truetype/dejavu - the exact directory ImageMagick's
-    # --with-dejavu-font-dir points at.
-    local -a font_urls=(
-        "https://github.com/adobe-fonts/source-code-pro.git"
-        "https://github.com/adobe-fonts/source-sans-pro.git"
-        "https://github.com/adobe-fonts/source-serif-pro.git"
-        "https://github.com/googlefonts/roboto.git"
-        "https://github.com/mozilla/Fira.git"
-    )
-    local font_url repo_name resolved ver commit
+    # --with-dejavu-font-dir points at. Font repositories are pinned to
+    # their HEAD commit (see resolve_pkg): their newest tags are years
+    # older than current content, so a tag pin would regress fonts.
+    local -a font_repos=(source-code-pro source-sans-pro source-serif-pro roboto Fira)
+    local repo_name tag ver commit
 
-    for font_url in "${font_urls[@]}"; do
-        repo_name="${font_url##*/}"
-        repo_name="${repo_name%.git}"
-        # Font repositories are pinned to their HEAD commit: their newest
-        # tags are years older than the current content (dejavu's newest
-        # tag is from 2016), so a tag pin would silently regress fonts.
-        resolved=$(resolve_pkg_version "$repo_name" resolve_git_head "$font_url") ||
-            fail "Failed to resolve the HEAD commit for $repo_name."
-        IFS='|' read -r _ ver commit <<<"$resolved"
+    for repo_name in "${font_repos[@]}"; do
+        resolve_into "$repo_name"
         if build "$repo_name" "$ver"; then
-            git_clone "$font_url" "$repo_name" "" "$commit"
+            git_clone "$(pkg_repo_url "$repo_name")" "$repo_name" "" "$commit"
             install_font_files "$repo_name"
             build_done "$repo_name" "$ver"
         fi

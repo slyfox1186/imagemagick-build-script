@@ -91,15 +91,12 @@ validate_magick_installation() {
 }
 
 stage_build_imagemagick() {
-    local resolved tag ver commit staging
+    local tag ver commit staging
 
     echo
     box_out_banner "Build ImageMagick"
 
-    resolved=$(resolve_pkg_version imagemagick resolve_latest_git_tag \
-        "https://github.com/ImageMagick/ImageMagick.git" '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$') ||
-        fail "Failed to resolve the latest ImageMagick version."
-    IFS='|' read -r tag ver commit <<<"$resolved"
+    resolve_into imagemagick
     if build imagemagick "$ver"; then
         download "https://github.com/ImageMagick/ImageMagick/archive/refs/tags/$tag.tar.gz" "imagemagick-$ver.tar.gz"
         execute autoreconf -fi
