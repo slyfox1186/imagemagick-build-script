@@ -234,7 +234,9 @@ validate_tar_archive() {
     local archive_path="$1" listing verdict tar_error
     # stderr is kept out of the listing: tar warnings (for example
     # "Removing leading '/'") would otherwise be parsed as member lines.
-    if ! listing=$(tar -tvf "$archive_path" 2>/dev/null); then
+    # The quoting style is pinned so control/meta characters always appear
+    # as backslash escapes regardless of environment defaults.
+    if ! listing=$(tar --quoting-style=escape -tvf "$archive_path" 2>/dev/null); then
         tar_error=$(tar -tf "$archive_path" 2>&1 >/dev/null | head -n 3)
         fail "Cannot read the archive '$archive_path': ${tar_error:-tar listing failed}"
     fi
@@ -280,7 +282,10 @@ validate_tar_archive() {
                 name = substr(line, 1, idx - 1)
                 target = substr(line, idx + 9)
             }
-            if (name ~ /[[:cntrl:]]/) { print "control characters in a member name"; exit 1 }
+            # With --quoting-style=escape, control and meta characters in
+            # member names surface as backslash escapes; a raw control byte
+            # (non-GNU tar) is also rejected directly.
+            if (name ~ /\\/ || name ~ /[[:cntrl:]]/) { print "escaped or control characters in a member name"; exit 1 }
             if (name ~ /^\//) { print "absolute member path: " name; exit 1 }
             if (name ~ /(^|\/)\.\.(\/|$)/) { print "path traversal in member name: " name; exit 1 }
             root = name
