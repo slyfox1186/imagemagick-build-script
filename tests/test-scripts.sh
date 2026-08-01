@@ -164,6 +164,7 @@ run_unit_in_sandbox() {
         latest_flag=0
         source '$repo_root/scripts/01-variables.sh'
         source '$repo_root/scripts/02-functions-core.sh'
+        source '$repo_root/scripts/03-functions-build.sh'
         $body
     " >unit-out.txt 2>unit-err.txt </dev/null)
     printf '%s' "$?" >"$sandbox/status.txt"
@@ -460,6 +461,386 @@ UNIT
     rm -rf -- "$sandbox"
 }
 
+# --- Phase 3: archive validation, transactional cache, markers -------------
+
+test_tar_validation_accepts_benign_archive() {
+    local label="tar validation accepts a benign single-root archive"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        python3 - <<'PY'
+import io, tarfile
+t = tarfile.open("good.tar", "w")
+for name in ("root/a.txt", "root/sub/b.txt"):
+    info = tarfile.TarInfo(name)
+    data = b"content"
+    info.size = len(data)
+    t.addfile(info, io.BytesIO(data))
+link = tarfile.TarInfo("root/sub/uplink")
+link.type = tarfile.SYMTYPE
+link.linkname = "../a.txt"
+t.addfile(link)
+hard = tarfile.TarInfo("root/hard")
+hard.type = tarfile.LNKTYPE
+hard.linkname = "root/a.txt"
+t.addfile(hard)
+t.close()
+PY
+        validate_tar_archive good.tar
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" != "0" ]]; then
+        tap_fail "$label" "status $status: $(<"$sandbox/unit-err.txt")"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_tar_validation_rejects_hostile_archives() {
+    local label="tar validation rejects traversal/absolute/multi-root/fifo/setuid/link escapes"
+    local sandbox status kind ok=1
+    for kind in absolute traversal multiroot fifo setuid symlink_escape abs_symlink hardlink_escape; do
+        sandbox=$(make_sandbox)
+        run_unit_in_sandbox "$sandbox" <<UNIT
+        kind="$kind" python3 - <<'PY'
+import io, os, tarfile
+kind = os.environ["kind"]
+t = tarfile.open("evil.tar", "w")
+def add_file(name, mode=0o644):
+    info = tarfile.TarInfo(name)
+    info.mode = mode
+    data = b"x"
+    info.size = len(data)
+    t.addfile(info, io.BytesIO(data))
+def add_link(name, target, hard=False):
+    info = tarfile.TarInfo(name)
+    info.type = tarfile.LNKTYPE if hard else tarfile.SYMTYPE
+    info.linkname = target
+    t.addfile(info)
+add_file("root/anchor.txt")
+if kind == "absolute":
+    add_file("/etc/evil")
+elif kind == "traversal":
+    add_file("root/../../evil")
+elif kind == "multiroot":
+    add_file("other/evil")
+elif kind == "fifo":
+    info = tarfile.TarInfo("root/fifo")
+    info.type = tarfile.FIFOTYPE
+    t.addfile(info)
+elif kind == "setuid":
+    add_file("root/suid", mode=0o4755)
+elif kind == "symlink_escape":
+    add_link("root/link", "../../etc/passwd")
+elif kind == "abs_symlink":
+    add_link("root/link", "/etc/passwd")
+elif kind == "hardlink_escape":
+    add_link("root/hard", "elsewhere/file", hard=True)
+t.close()
+PY
+        if (validate_tar_archive evil.tar) >/dev/null 2>&1; then
+            exit 7
+        fi
+        exit 0
+UNIT
+        status=$(<"$sandbox/status.txt")
+        if [[ "$status" != "0" ]]; then
+            tap_fail "$label" "kind '$kind' was not rejected (status $status): $(<"$sandbox/unit-err.txt")"
+            ok=0
+            rm -rf -- "$sandbox"
+            break
+        fi
+        rm -rf -- "$sandbox"
+    done
+    [[ "$ok" -eq 1 ]] && tap_ok "$label"
+}
+
+test_extraction_publishes_nothing_on_failure() {
+    local label="failed extraction publishes no target directory"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$packages"
+        echo "this is not a tar archive" > "$packages/broken.tar"
+        extract_archive_to_build_dir broken.tar "$packages/broken"
+        exit 7
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" == "0" || "$status" == "7" ]]; then
+        tap_fail "$label" "a broken archive did not abort (status $status)"
+    elif [[ -e "$sandbox/magick-build-script/packages/broken" ]]; then
+        tap_fail "$label" "a target directory was published for a broken archive"
+    elif compgen -G "$sandbox/magick-build-script/packages/.extract.*" >/dev/null; then
+        tap_fail "$label" "an extraction temp directory was left behind"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_checksum_roundtrip_and_tamper_detection() {
+    local label="archive checksum records validate and detect tampering"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$packages"
+        printf 'payload' > "$packages/thing.tar"
+        write_archive_checksum thing.tar
+        archive_checksum_matches thing.tar || exit 7
+        printf 'tampered' > "$packages/thing.tar"
+        archive_checksum_matches thing.tar && exit 8
+        exit 0
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "a freshly written checksum did not validate" ;;
+        8) tap_fail "$label" "tampering was not detected" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_download_publishes_only_on_success() {
+    local label="download publishes to the cache only after a successful transfer"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$packages"
+        python3 - <<'PY'
+import io, tarfile
+t = tarfile.open("good.tar", "w")
+info = tarfile.TarInfo("root/a.txt")
+data = b"content"
+info.size = len(data)
+t.addfile(info, io.BytesIO(data))
+t.close()
+PY
+        curl() {
+            local out=""
+            while [[ $# -gt 0 ]]; do
+                if [[ "$1" == "--output" ]]; then out="$2"; shift 2; else shift; fi
+            done
+            cp good.tar "$out"
+        }
+        download_archive_to_cache pkg.tar "https://example.invalid/pkg.tar"
+        [[ -f "$packages/pkg.tar" ]] || exit 7
+        archive_checksum_matches pkg.tar || exit 8
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "the archive was not published to the cache" ;;
+        8) tap_fail "$label" "no valid checksum record was written" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_failed_download_leaves_no_partial_file() {
+    local label="a failed download leaves no cache entry and no part-file"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$packages"
+        curl() {
+            local out=""
+            while [[ $# -gt 0 ]]; do
+                if [[ "$1" == "--output" ]]; then out="$2"; shift 2; else shift; fi
+            done
+            echo "partial junk" > "$out"
+            return 22
+        }
+        download_archive_to_cache pkg.tar "https://example.invalid/pkg.tar"
+        exit 7
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" == "0" || "$status" == "7" ]]; then
+        tap_fail "$label" "a failed transfer did not abort (status $status)"
+    elif [[ -e "$sandbox/magick-build-script/packages/pkg.tar" ]]; then
+        tap_fail "$label" "a partial archive was published to the cache"
+    elif compgen -G "$sandbox/magick-build-script/packages/.pkg.tar.part.*" >/dev/null; then
+        tap_fail "$label" "a part-file was left behind"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_valid_cache_skips_the_network() {
+    local label="a validated cached archive is reused without calling curl"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$packages"
+        python3 - <<'PY'
+import io, tarfile
+t = tarfile.open("good.tar", "w")
+info = tarfile.TarInfo("root/a.txt")
+data = b"content"
+info.size = len(data)
+t.addfile(info, io.BytesIO(data))
+t.close()
+PY
+        cp good.tar "$packages/pkg.tar"
+        write_archive_checksum pkg.tar
+        curl() { echo "curl must not be called for a valid cache" >&2; exit 99; }
+        download_archive_to_cache pkg.tar "https://example.invalid/pkg.tar"
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" != "0" ]]; then
+        tap_fail "$label" "status $status: $(<"$sandbox/unit-err.txt")"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_corrupt_cache_is_refetched() {
+    local label="a corrupt cached archive is wiped and refetched"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$packages"
+        python3 - <<'PY'
+import io, tarfile
+t = tarfile.open("good.tar", "w")
+info = tarfile.TarInfo("root/a.txt")
+data = b"content"
+info.size = len(data)
+t.addfile(info, io.BytesIO(data))
+t.close()
+PY
+        echo "corrupt cached bytes" > "$packages/pkg.tar"
+        write_archive_checksum pkg.tar
+        curl() {
+            local out=""
+            while [[ $# -gt 0 ]]; do
+                if [[ "$1" == "--output" ]]; then out="$2"; shift 2; else shift; fi
+            done
+            cp good.tar "$out"
+        }
+        download_archive_to_cache pkg.tar "https://example.invalid/pkg.tar"
+        tar -tf "$packages/pkg.tar" >/dev/null || exit 7
+        archive_checksum_matches pkg.tar || exit 8
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "the corrupt archive was not replaced" ;;
+        8) tap_fail "$label" "the refreshed checksum record is invalid" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_build_done_requires_artifacts() {
+    local label="build_done refuses to record completion without artifacts"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$packages" "$workspace"
+        build_done m4 1.4.19
+        exit 7
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" == "0" || "$status" == "7" ]]; then
+        tap_fail "$label" "a marker was recorded without artifacts (status $status)"
+    elif [[ -e "$sandbox/magick-build-script/packages/m4.done" ]]; then
+        tap_fail "$label" "a marker file exists despite the refusal"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_marker_records_version_and_commit() {
+    local label="markers record version plus commit and read back exactly"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$packages" "$workspace/bin"
+        printf '#!/bin/sh\n' > "$workspace/bin/m4"
+        chmod 755 "$workspace/bin/m4"
+        commit="0123456789abcdef0123456789abcdef01234567"
+        build_done m4 1.4.19 "$commit"
+        [[ "$(read_marker_version m4)" == "1.4.19" ]] || exit 7
+        [[ "$(read_marker_commit m4)" == "$commit" ]] || exit 8
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "the recorded version did not read back" ;;
+        8) tap_fail "$label" "the recorded commit did not read back" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_build_skips_when_marker_and_artifacts_match() {
+    local label="build skips a package whose marker and artifacts are intact"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$packages" "$workspace/bin"
+        printf '#!/bin/sh\n' > "$workspace/bin/m4"
+        chmod 755 "$workspace/bin/m4"
+        build_done m4 1.4.19
+        if build m4 1.4.19; then exit 7; fi
+        exit 0
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "the package was not skipped" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_build_self_heals_marker_without_artifacts() {
+    local label="build self-heals a marker whose artifacts are gone"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$packages" "$workspace"
+        printf '1.4.19\n' > "$packages/m4.done"
+        build m4 1.4.19 || exit 7
+        [[ ! -e "$packages/m4.done" ]] || exit 8
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "build did not request a rebuild" ;;
+        8) tap_fail "$label" "the stale marker was not removed" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_legacy_marker_triggers_rebuild() {
+    local label="a legacy/malformed marker is treated as absent"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$packages" "$workspace/bin"
+        printf '#!/bin/sh\n' > "$workspace/bin/m4"
+        chmod 755 "$workspace/bin/m4"
+        printf 'not a! valid marker line\n' > "$packages/m4.done"
+        build m4 1.4.19 || exit 7
+        [[ ! -e "$packages/m4.done" ]] || exit 8
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "a malformed marker was accepted" ;;
+        8) tap_fail "$label" "the malformed marker was not removed" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
 test_help_is_pure
 test_short_help_is_pure
 test_unknown_option_fails_cleanly
@@ -480,6 +861,19 @@ test_init_build_log_refuses_symlink
 test_cleanup_noninteractive_preserves_files
 test_cleanup_always_removes_marked_root
 test_remove_build_root_requires_marker
+test_tar_validation_accepts_benign_archive
+test_tar_validation_rejects_hostile_archives
+test_extraction_publishes_nothing_on_failure
+test_checksum_roundtrip_and_tamper_detection
+test_download_publishes_only_on_success
+test_failed_download_leaves_no_partial_file
+test_valid_cache_skips_the_network
+test_corrupt_cache_is_refetched
+test_build_done_requires_artifacts
+test_marker_records_version_and_commit
+test_build_skips_when_marker_and_artifacts_match
+test_build_self_heals_marker_without_artifacts
+test_legacy_marker_triggers_rebuild
 
 printf '1..%d\n' "$test_count"
 if [[ "$fail_count" -gt 0 ]]; then
