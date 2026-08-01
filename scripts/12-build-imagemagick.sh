@@ -46,11 +46,11 @@ validate_magick_installation() {
     local version_output delegates_line pc_version smoke_dir delegate
     local -a missing_delegates=()
     # Delegates guaranteed by this script's own dependency builds and APT
-    # set. Host-provided extras (bzlib, jxl, lzma, x, zstd...) are welcome
+    # set. Host-provided extras (jxl on Ubuntu 22.04, x...) are welcome
     # but deliberately not required.
     local -a required_delegates=(
-        fontconfig freetype fpx gslib gvc heic jng jp2 jpeg
-        lcms png raqm rsvg tiff webp xml zlib
+        bzlib fontconfig freetype fpx gslib gvc heic jbig jng jp2 jpeg
+        lcms lzma png raqm rsvg tiff webp xml zlib zstd
     )
 
     [[ -x "$magick_bin" ]] || fail "$magick_bin is missing or not executable."
