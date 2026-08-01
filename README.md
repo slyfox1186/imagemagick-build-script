@@ -115,6 +115,22 @@ The script only reports success after the installed `/usr/local/bin/magick`:
 3. exposes a resolvable `MagickCore.pc` under `/usr/local/lib/pkgconfig`,
 4. completes a real conversion round-trip (`logo:` → PNG → WebP).
 
+A validated container build reports, for example:
+
+```text
+Version: ImageMagick 7.1.2-29 Q16-HDRI x86_64 20260727 https://imagemagick.org
+Features: Cipher DPC HDRI Modules OpenCL OpenMP(4.5)
+Delegates (built-in): bzlib cairo fontconfig fpx freetype gslib gvc heic jbig jng jp2 jpeg jxl lcms ltdl lzma png ps raqm rsvg tiff webp x xml zlib zstd
+```
+
+Platform difference: the optional JPEG-XL (`jxl`) delegate is absent on
+Ubuntu 22.04, which does not package `libjxl-dev`.
+
+DejaVu fonts come from the distribution's `fonts-dejavu-core` package
+(which provides the exact directory `--with-dejavu-font-dir` points at);
+the Source Pro families, Roboto, and Fira are installed from their
+upstream repositories pinned at the HEAD commit.
+
 ## Troubleshooting
 
 - Full command output for every build step is appended to
