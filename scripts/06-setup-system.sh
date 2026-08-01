@@ -10,6 +10,10 @@ echo "=========================================="
 get_os_version
 VER_MAJOR="${VER%%.*}"
 
+# The context depends on the detected OS, so it is refreshed here rather
+# than at build-root initialization time.
+refresh_build_context
+
 # DISCOVER WHAT VERSION OF LINUX WE ARE RUNNING (DEBIAN OR UBUNTU)
 case "$OS" in
     Arch) ;;
