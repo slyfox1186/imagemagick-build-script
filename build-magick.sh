@@ -188,12 +188,11 @@ initialize_build_root
 require_sudo
 start_sudo_keepalive
 
-# Phase 3: System setup (OS detection, package installation)
+# Stage definitions (06-13 define one stage function each)
 require_script "$SCRIPTS_DIR/06-setup-system.sh"
 # shellcheck source=scripts/06-setup-system.sh
 source "$SCRIPTS_DIR/06-setup-system.sh"
 
-# Phase 4: Build dependencies
 require_script "$SCRIPTS_DIR/07-build-core-tools.sh"
 # shellcheck source=scripts/07-build-core-tools.sh
 source "$SCRIPTS_DIR/07-build-core-tools.sh"
@@ -210,17 +209,24 @@ require_script "$SCRIPTS_DIR/10-build-extra-libs.sh"
 # shellcheck source=scripts/10-build-extra-libs.sh
 source "$SCRIPTS_DIR/10-build-extra-libs.sh"
 
-# Phase 5: Fonts
 require_script "$SCRIPTS_DIR/11-build-fonts.sh"
 # shellcheck source=scripts/11-build-fonts.sh
 source "$SCRIPTS_DIR/11-build-fonts.sh"
 
-# Phase 6: Build ImageMagick
 require_script "$SCRIPTS_DIR/12-build-imagemagick.sh"
 # shellcheck source=scripts/12-build-imagemagick.sh
 source "$SCRIPTS_DIR/12-build-imagemagick.sh"
 
-# Phase 7: Finalize
 require_script "$SCRIPTS_DIR/13-finalize.sh"
 # shellcheck source=scripts/13-finalize.sh
 source "$SCRIPTS_DIR/13-finalize.sh"
+
+# Run the build stages in order
+stage_setup_system
+stage_build_core_tools
+stage_build_image_libs
+stage_build_text_libs
+stage_build_extra_libs
+stage_install_fonts
+stage_build_imagemagick
+stage_finalize

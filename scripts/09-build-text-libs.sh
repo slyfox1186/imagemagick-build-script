@@ -1,140 +1,168 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 
-find_git_repo "7950" "2"
-version="${version#VER-}"
-version1="${version//-/.}"
-if build "freetype" "$version1"; then
-    download "https://gitlab.freedesktop.org/freetype/freetype/-/archive/VER-$version/freetype-VER-$version.tar.bz2" "freetype-$version1.tar.bz2"
-    extracmds=("-D"{harfbuzz,png,bzip2,brotli,zlib,tests}"=disabled")
-    execute sh autogen.sh
-    execute meson setup build --prefix="$workspace" \
-                              --buildtype=release \
-                              --default-library=static \
-                              --strip \
-                              "${extracmds[@]}"
-    execute ninja "-j$cpu_threads" -C build
-    execute ninja -C build install
-    build_done "freetype" "$version1"
-fi
+stage_build_text_libs() {
+    local resolved tag ver commit
+    local -a extracmds iconv_cmake_flags
+    local fontconfig_cflags fontconfig_ldflags _dir _inc
+    local PYTHON_CFLAGS PYTHON_LIBS
 
-find_git_repo "1665" "3" "T"
-if build "libxml2" "$version"; then
-    download "https://gitlab.gnome.org/GNOME/libxml2/-/archive/v$version/libxml2-v$version.tar.bz2" "libxml2-$version.tar.bz2"
-    if command -v python3.11-config &>/dev/null; then
-        PYTHON_CFLAGS=$(python3.11-config --cflags)
-        PYTHON_LIBS=$(python3.11-config --ldflags)
-    else
-        PYTHON_CFLAGS=$(python3.12-config --cflags)
-        PYTHON_LIBS=$(python3.12-config --ldflags)
+    # freetype tags use dashes (VER-2-13-3); the recorded version is the
+    # dotted form, which is a no-op on the marker-reuse path.
+    resolved=$(resolve_pkg_version freetype resolve_latest_git_tag \
+        "https://gitlab.freedesktop.org/freetype/freetype.git" '^VER-[0-9]+(-[0-9]+)+$' '' 'VER-') ||
+        fail "Failed to resolve the latest freetype version."
+    IFS='|' read -r tag ver commit <<<"$resolved"
+    ver="${ver//-/.}"
+    if build freetype "$ver"; then
+        download "https://gitlab.freedesktop.org/freetype/freetype/-/archive/$tag/freetype-$tag.tar.bz2" \
+            "freetype-$ver.tar.bz2"
+        extracmds=("-D"{harfbuzz,png,bzip2,brotli,zlib,tests}"=disabled")
+        execute sh autogen.sh
+        execute meson setup build --prefix="$workspace" \
+                                  --buildtype=release \
+                                  --default-library=static \
+                                  --strip \
+                                  "${extracmds[@]}"
+        execute ninja "-j$cpu_threads" -C build
+        execute ninja -C build install
+        build_done freetype "$ver" "$commit"
     fi
-    export PYTHON_CFLAGS PYTHON_LIBS
 
-    # Detect standalone GNU libiconv (vs glibc built-in) so cmake links it properly
-    iconv_cmake_flags=()
-    for _dir in "$workspace/lib" /usr/local/lib /usr/lib; do
-        if [[ -f "$_dir/libiconv.a" || -f "$_dir/libiconv.so" ]]; then
-            _inc="${_dir%/lib}/include"
-            if [[ -f "$_inc/iconv.h" ]]; then
-                iconv_cmake_flags+=("-DIconv_INCLUDE_DIR=$_inc")
-                if [[ -f "$_dir/libiconv.a" ]]; then
-                    iconv_cmake_flags+=("-DIconv_LIBRARY=$_dir/libiconv.a")
-                else
-                    iconv_cmake_flags+=("-DIconv_LIBRARY=$_dir/libiconv.so")
-                fi
-                break
-            fi
+    resolved=$(resolve_pkg_version libxml2 resolve_latest_git_tag \
+        "https://gitlab.gnome.org/GNOME/libxml2.git" '^v[0-9]+\.[0-9]+\.[0-9]+$' '' 'v') ||
+        fail "Failed to resolve the latest libxml2 version."
+    IFS='|' read -r tag ver commit <<<"$resolved"
+    if build libxml2 "$ver"; then
+        download "https://gitlab.gnome.org/GNOME/libxml2/-/archive/$tag/libxml2-$tag.tar.bz2" \
+            "libxml2-$ver.tar.bz2"
+        if command -v python3.11-config &>/dev/null; then
+            PYTHON_CFLAGS=$(python3.11-config --cflags)
+            PYTHON_LIBS=$(python3.11-config --ldflags)
+        else
+            PYTHON_CFLAGS=$(python3.12-config --cflags)
+            PYTHON_LIBS=$(python3.12-config --ldflags)
         fi
-    done
+        export PYTHON_CFLAGS PYTHON_LIBS
 
-    execute sh autogen.sh
-    execute cmake -B build -DCMAKE_INSTALL_PREFIX="$workspace" \
-                           -DCMAKE_BUILD_TYPE=Release \
-                           -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE \
-                           -DBUILD_SHARED_LIBS=OFF \
-                           "${iconv_cmake_flags[@]}" \
-                           -G Ninja -Wno-dev
-    execute ninja "-j$cpu_threads" -C build
-    execute ninja -C build install
-    build_done "libxml2" "$version"
-fi
+        # Detect standalone GNU libiconv (vs glibc built-in) so cmake links it properly
+        iconv_cmake_flags=()
+        for _dir in "$workspace/lib" /usr/local/lib /usr/lib; do
+            if [[ -f "$_dir/libiconv.a" || -f "$_dir/libiconv.so" ]]; then
+                _inc="${_dir%/lib}/include"
+                if [[ -f "$_inc/iconv.h" ]]; then
+                    iconv_cmake_flags+=("-DIconv_INCLUDE_DIR=$_inc")
+                    if [[ -f "$_dir/libiconv.a" ]]; then
+                        iconv_cmake_flags+=("-DIconv_LIBRARY=$_dir/libiconv.a")
+                    else
+                        iconv_cmake_flags+=("-DIconv_LIBRARY=$_dir/libiconv.so")
+                    fi
+                    break
+                fi
+            fi
+        done
 
-find_git_repo "890" "2"
-if build "fontconfig" "$version"; then
-    download "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/$version/fontconfig-$version.tar.bz2"
+        execute sh autogen.sh
+        execute cmake -B build -DCMAKE_INSTALL_PREFIX="$workspace" \
+                               -DCMAKE_BUILD_TYPE=Release \
+                               -DCMAKE_POSITION_INDEPENDENT_CODE=TRUE \
+                               -DBUILD_SHARED_LIBS=OFF \
+                               "${iconv_cmake_flags[@]}" \
+                               -G Ninja -Wno-dev
+        execute ninja "-j$cpu_threads" -C build
+        execute ninja -C build install
+        build_done libxml2 "$ver" "$commit"
+    fi
 
-    # Explicitly add paths for zlib and lzma, and link them
-    fontconfig_ldflags="$LDFLAGS -DLIBXML_STATIC -L/usr/lib/x86_64-linux-gnu -lz -llzma"
-    fontconfig_cflags="$CFLAGS -I/usr/include -I/usr/include/libxml2"
+    resolved=$(resolve_pkg_version fontconfig resolve_latest_git_tag \
+        "https://gitlab.freedesktop.org/fontconfig/fontconfig.git" '^[0-9]+\.[0-9]+(\.[0-9]+)?$') ||
+        fail "Failed to resolve the latest fontconfig version."
+    IFS='|' read -r tag ver commit <<<"$resolved"
+    if build fontconfig "$ver"; then
+        download "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/$tag/fontconfig-$tag.tar.bz2"
 
-    # Update the pkg-config file to include LIBXML_STATIC
-    sed -i "s|Cflags:|& -DLIBXML_STATIC|" "fontconfig.pc.in"
+        # Explicitly add paths for zlib and lzma, and link them
+        fontconfig_ldflags="$LDFLAGS -DLIBXML_STATIC -L/usr/lib/x86_64-linux-gnu -lz -llzma"
+        fontconfig_cflags="$CFLAGS -I/usr/include -I/usr/include/libxml2"
 
-    execute sh autogen.sh --noconf
-    execute sh configure --prefix="$workspace" \
-                        --disable-docbook \
-                        --disable-docs \
-                        --disable-shared \
-                        --disable-nls \
-                        --enable-iconv \
-                        --enable-libxml2 \
-                        --enable-static \
-                        --with-arch="$(uname -m)" \
-                        --with-libiconv-prefix=/usr \
-                        --with-pic \
-                        CFLAGS="$fontconfig_cflags" \
-                        LDFLAGS="$fontconfig_ldflags"
+        # Update the pkg-config file to include LIBXML_STATIC
+        sed -i "s|Cflags:|& -DLIBXML_STATIC|" "fontconfig.pc.in"
 
-    execute make "-j$cpu_threads"
-    execute make install
-    build_done "fontconfig" "$version"
-fi
+        execute sh autogen.sh --noconf
+        execute sh configure --prefix="$workspace" \
+                            --disable-docbook \
+                            --disable-docs \
+                            --disable-shared \
+                            --disable-nls \
+                            --enable-iconv \
+                            --enable-libxml2 \
+                            --enable-static \
+                            --with-arch="$(uname -m)" \
+                            --with-libiconv-prefix=/usr \
+                            --with-pic \
+                            CFLAGS="$fontconfig_cflags" \
+                            LDFLAGS="$fontconfig_ldflags"
 
-# c2man is optional - it's an old tool for generating man pages from C comments
-# Skip it as it has compatibility issues with modern systems
-if command -v c2man &>/dev/null; then
-    log "c2man already available, skipping build"
-fi
+        execute make "-j$cpu_threads"
+        execute make install
+        build_done fontconfig "$ver" "$commit"
+    fi
 
-find_git_repo "fribidi/fribidi" "1" "T"
-if build "fribidi" "$version"; then
-    download "https://github.com/fribidi/fribidi/archive/refs/tags/v$version.tar.gz" "fribidi-$version.tar.gz"
-    extracmds=("-D"{docs,tests}"=false")
-    execute autoreconf -fi
-    execute meson setup build --prefix="$workspace" \
-                              --buildtype=release \
-                              --default-library=static \
-                              --strip \
-                              "${extracmds[@]}"
-    execute ninja "-j$cpu_threads" -C build
-    execute ninja -C build install
-    build_done "fribidi" "$version"
-fi
+    # c2man is optional - it's an old tool for generating man pages from C comments
+    # Skip it as it has compatibility issues with modern systems
+    if command -v c2man &>/dev/null; then
+        log "c2man already available, skipping build"
+    fi
 
-find_git_repo "harfbuzz/harfbuzz" "1" "T"
-if build "harfbuzz" "$version"; then
-    download "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/$version.tar.gz" "harfbuzz-$version.tar.gz"
-    extracmds=("-D"{benchmark,cairo,docs,glib,gobject,icu,introspection,tests}"=disabled")
-    execute meson setup build --prefix="$workspace" \
-                              --buildtype=release \
-                              --default-library=static \
-                              --strip \
-                              "${extracmds[@]}"
-    execute ninja "-j$cpu_threads" -C build
-    execute ninja -C build install
-    build_done "harfbuzz" "$version"
-fi
+    resolved=$(resolve_pkg_version fribidi resolve_latest_git_tag \
+        "https://github.com/fribidi/fribidi.git" '^v[0-9]+\.[0-9]+(\.[0-9]+)?$' '' 'v') ||
+        fail "Failed to resolve the latest fribidi version."
+    IFS='|' read -r tag ver commit <<<"$resolved"
+    if build fribidi "$ver"; then
+        download "https://github.com/fribidi/fribidi/archive/refs/tags/$tag.tar.gz" "fribidi-$ver.tar.gz"
+        extracmds=("-D"{docs,tests}"=false")
+        execute autoreconf -fi
+        execute meson setup build --prefix="$workspace" \
+                                  --buildtype=release \
+                                  --default-library=static \
+                                  --strip \
+                                  "${extracmds[@]}"
+        execute ninja "-j$cpu_threads" -C build
+        execute ninja -C build install
+        build_done fribidi "$ver" "$commit"
+    fi
 
-find_git_repo "host-oman/libraqm" "1" "T"
-if build "raqm" "$version"; then
-    download "https://codeload.github.com/host-oman/libraqm/tar.gz/refs/tags/v$version" "raqm-$version.tar.gz"
-    execute meson setup build --prefix="$workspace" \
-                              --includedir="$workspace/include" \
-                              --buildtype=release \
-                              --default-library=static \
-                              --strip \
-                              -Ddocs=false
-    execute ninja "-j$cpu_threads" -C build
-    execute ninja -C build install
-    build_done "raqm" "$version"
-fi
+    resolved=$(resolve_pkg_version harfbuzz resolve_latest_git_tag \
+        "https://github.com/harfbuzz/harfbuzz.git" '^[0-9]+\.[0-9]+\.[0-9]+$') ||
+        fail "Failed to resolve the latest harfbuzz version."
+    IFS='|' read -r tag ver commit <<<"$resolved"
+    if build harfbuzz "$ver"; then
+        download "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/$tag.tar.gz" "harfbuzz-$ver.tar.gz"
+        extracmds=("-D"{benchmark,cairo,docs,glib,gobject,icu,introspection,tests}"=disabled")
+        execute meson setup build --prefix="$workspace" \
+                                  --buildtype=release \
+                                  --default-library=static \
+                                  --strip \
+                                  "${extracmds[@]}"
+        execute ninja "-j$cpu_threads" -C build
+        execute ninja -C build install
+        build_done harfbuzz "$ver" "$commit"
+    fi
+
+    resolved=$(resolve_pkg_version raqm resolve_latest_git_tag \
+        "https://github.com/host-oman/libraqm.git" '^v[0-9]+\.[0-9]+\.[0-9]+$' '' 'v') ||
+        fail "Failed to resolve the latest raqm version."
+    IFS='|' read -r tag ver commit <<<"$resolved"
+    if build raqm "$ver"; then
+        download "https://codeload.github.com/host-oman/libraqm/tar.gz/refs/tags/$tag" "raqm-$ver.tar.gz"
+        execute meson setup build --prefix="$workspace" \
+                                  --includedir="$workspace/include" \
+                                  --buildtype=release \
+                                  --default-library=static \
+                                  --strip \
+                                  -Ddocs=false
+        execute ninja "-j$cpu_threads" -C build
+        execute ninja -C build install
+        build_done raqm "$ver" "$commit"
+    fi
+}

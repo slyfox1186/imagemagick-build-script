@@ -1,110 +1,38 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 
-# Parse each git repository to find the latest release version number for each program
+# Version resolvers. Contract: every resolver prints "tag|version|commit"
+# on stdout (tag/commit may be empty for tarball-only sources) and returns
+# non-zero on any failure - an empty or "null" version can never leak into
+# markers or download URLs. Git-hosted upstreams (GitHub, GitLab,
+# googlesource) all resolve through resolve_latest_git_tag with a
+# repository-specific tag grammar at the call site; there is deliberately
+# no HTML scraping and no per-forge API client.
+
+# GNU-style release-directory listing (m4, pkg-config): highest plain
+# numeric "<name>-X.Y[.Z].tar.*" version. Rolling aliases like
+# "m4-latest.tar.xz" never match, so markers always record a real version.
 gnu_repo() {
-    local url="$1"
-    version=$(curl -fsS "$url" | grep -oP '[a-z]+-\K(([0-9\.]*[0-9]+)){2,}' | sort -rV | head -n1)
+    local listing ver
+    listing=$(curl_listing "$1") || return 1
+    ver=$(printf '%s\n' "$listing" |
+        grep -oP '[a-zA-Z0-9_-]+-\K[0-9]+(\.[0-9]+)+(?=\.tar)' |
+        sort -uV | tail -n 1)
+    [[ -n "$ver" ]] || return 1
+    printf '|%s|\n' "$ver"
 }
 
-github_repo() {
-    local count git_repo git_url
-    git_repo="$1"
-    git_url="$2"
-    count=1
-    version=""
-
-    # Fetch GitHub tags page
-    while [[ $count -le 10 ]]; do
-        # Apply case-insensitive matching for RC versions to exclude them
-        version=$(curl -fsSL "https://github.com/$git_repo/$git_url" |
-                grep -oP 'href="[^"]*/tags/[^"]*\.tar\.gz"' |
-                grep -oP '\/tags\/\K(v?[\w.-]+?)(?=\.tar\.gz)' |
-                grep -iPv '(rc)[0-9]*' | head -n1 | sed 's/^v//')
-
-        # Check if a non-RC version was found
-        if [[ -n "$version" ]]; then
-            break
-        else
-            ((count++))
-        fi
-    done
-    # Handle cases where only release candidate versions are found after the script reaches the maximum attempts
-    [[ -z "$version" ]] && fail "No matching version found without RC/rc suffix. Line: ${LINENO}"
-}
-
-gitlab_freedesktop_repo() {
-    local count repo curl_results
-    repo="$1"
-    count=0
-    version=""
-
-    while true; do
-        if curl_results=$(curl -fsSL "https://gitlab.freedesktop.org/api/v4/projects/$repo/repository/tags"); then
-            version=$(echo "$curl_results" | jq -r ".[$count].name")
-            version="${version#v}"
-
-            # Check if the version contains "RC" and skip it
-            if [[ $version =~ $regex_string ]]; then
-                ((count++))
-            else
-                break # Exit the loop when a non-RC version is found
-            fi
-        else
-            fail "Failed to fetch data from GitLab API. Line: ${LINENO}"
-        fi
-    done
-}
-
-gitlab_gnome_repo() {
-    local count repo url curl_results
-    repo="$1"
-    url="$2"
-    count=0
-    version=""
-
-    [[ -z "$repo" ]] && fail "Repository name is required. Line: ${LINENO}"
-
-    if curl_results=$(curl -fsSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url"); then
-        version=$(echo "$curl_results" | jq -r '.[0].name')
-        version="${version#v}"
-    fi
-
-    # Deny installing a release candidate
-    while [[ $version =~ $regex_string ]]; do
-        if curl_results=$(curl -fsSL "https://gitlab.gnome.org/api/v4/projects/$repo/repository/$url"); then
-            version=$(echo "$curl_results" | jq -r ".[$count].name" | sed 's/^v//')
-        fi
-        ((count++))
-    done
-}
-
-find_git_repo() {
-    local url="$1"
-    local git_repo_type="$2"
-    local url_action="$3"
-    local set_repo set_action
-
-    case "$git_repo_type" in
-        1) set_repo="github_repo" ;;
-        2) set_repo="gitlab_freedesktop_repo" ;;
-        3) set_repo="gitlab_gnome_repo" ;;
-        *) fail "Error: Could not detect the variable \"\$git_repo_type\" in the function \"find_git_repo\". Line: ${LINENO}"
-    esac
-
-    case "$url_action" in
-        T) set_action="tags" ;;
-        *) set_action="$3" ;;
-    esac
-
-    "$set_repo" "$url" "$set_action" 2>/dev/null
-}
-
-find_ghostscript_version() {
-    version="$1"
-    formatted_version=$(
-                        echo "$version" |
-                        sed -E 's/gs([0-9]{2})([0-9]{2})([0-9])/\1.\2.\3/'
-                    )
-    gscript_url="https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/${version}/ghostscript-${formatted_version}.tar.xz"
+# Ghostscript releases live in the ghostpdl-downloads repository with tags
+# like gs10071 (= 10.07.1). The grammar is pinned to exactly five digits:
+# a future six-digit tag would sort wrongly against five-digit ones, so it
+# fails closed for a deliberate update instead.
+resolve_ghostscript() {
+    local trip tag commit fmt
+    trip=$(resolve_latest_git_tag \
+        "https://github.com/ArtifexSoftware/ghostpdl-downloads.git" \
+        '^gs[0-9]{5}$') || return 1
+    IFS='|' read -r tag _ commit <<<"$trip"
+    fmt=$(printf '%s\n' "$tag" | sed -E 's/^gs([0-9]{2})([0-9]{2})([0-9])$/\1.\2.\3/')
+    [[ "$fmt" != "$tag" ]] || return 1
+    printf '%s|%s|%s\n' "$tag" "$fmt" "$commit"
 }

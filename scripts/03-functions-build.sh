@@ -168,6 +168,17 @@ curl_transfer() {
         --output "$output" "$url"
 }
 
+# Small text fetch (release-directory listings) to stdout, same policy but
+# tighter time budget.
+curl_listing() {
+    curl --fail --silent --show-error --location \
+        --proto '=https' --proto-redir '=https' --tlsv1.2 \
+        --connect-timeout 15 --max-time 120 \
+        --retry 3 --retry-delay 5 --retry-all-errors --retry-max-time 300 \
+        --user-agent "$CURL_USER_AGENT" \
+        "$1"
+}
+
 # Fetch into a temporary part-file and publish into the cache only after tar
 # can read the result, so an interrupted transfer can never poison the cache.
 # A cached archive is revalidated (checksum + tar listing) before reuse and
@@ -352,86 +363,148 @@ download_with_fallback() {
 }
 
 # ---------------------------------------------------------------------------
-# Git sources
+# Git sources: hardened network calls, pure tag selection, pinned clones
 # ---------------------------------------------------------------------------
 
-git_latest_version() {
-    local repo_url="$1"
-    local tag_list="" latest="" head_info=""
+# Overridable so offline tests can exercise git_clone against local
+# fixture repositories; production runs only ever allow HTTPS.
+GIT_PROTOCOL_POLICY=(-c protocol.allow=never -c protocol.https.allow=always)
 
-    if ! tag_list=$(git ls-remote --tags "$repo_url" 2>/dev/null); then
-        return 1
-    fi
-
-    latest=$(printf '%s\n' "$tag_list" |
-        awk -F'/' '/\/v?[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9]+)?(\^\{\})?$/ {
-            tag = $3;
-            sub(/^v/, "", tag);
-            print tag
-        }' |
-        grep -v '\^{}' |
-        sort -rV |
-        head -n1
-    )
-
-    if [[ -z "$latest" ]]; then
-        if ! head_info=$(git ls-remote "$repo_url" 2>/dev/null); then
-            return 1
-        fi
-        latest=$(printf '%s\n' "$head_info" | awk '/HEAD/ {print substr($1,1,7)}')
-    fi
-
-    [[ -z "$latest" ]] && latest="unknown"
-    printf '%s' "$latest"
+hardened_git() {
+    timeout --foreground "${GIT_OPERATION_TIMEOUT:-600}" \
+        env GIT_TERMINAL_PROMPT=0 git "${GIT_PROTOCOL_POLICY[@]}" "$@"
 }
 
-git_caller() {
-    git_url="$1"
-    repo_name="$2"
-    recurse_flag=0
-
-    [[ "$3" == "recurse" ]] && recurse_flag=1
-
-    version=$(git_latest_version "$git_url") || fail "Failed to determine latest version for \"$git_url\". Line: ${LINENO}"
+# Full tag listing including the peeled (^{}) lines, which carry the commit
+# an annotated tag actually points to.
+resolve_git_tags() {
+    hardened_git ls-remote --tags "$1"
 }
 
+# Pure selection over a `git ls-remote --tags` listing on stdin.
+# Arguments: accept_regex [exclude_regex] [strip_prefix].
+# Emits "tag|version|commit" for the highest stable tag.
+#
+# Design constraints, both verified in this repo's test battery:
+# - Every upstream needs its own tag grammar. libjpeg-turbo alone carries
+#   x.y.9z development tags plus inherited jpeg-9e/jpeg-10 tags that a
+#   generic version sort would happily select.
+# - The pipeline must consume all input: `sort -ruV | head -1` dies with
+#   SIGPIPE (exit 141) under pipefail on large listings, so the maximum is
+#   taken with an ascending sort and tail, which reads to EOF.
+select_latest_stable_tag() {
+    local accept="$1" exclude="${2:-}" prefix="${3:-}" input best_pair tag ver sha
+    input=$(cat)
+    [[ -n "$input" ]] || return 1
+    best_pair=$(printf '%s\n' "$input" |
+        ACCEPT_RE="$accept" EXCLUDE_RE="$exclude" STRIP_PREFIX="$prefix" awk -F'\t' '
+        BEGIN {
+            accept = ENVIRON["ACCEPT_RE"]
+            exclude = ENVIRON["EXCLUDE_RE"]
+            prefix = ENVIRON["STRIP_PREFIX"]
+        }
+        $2 ~ /^refs\/tags\// {
+            tag = substr($2, 11)
+            if (tag ~ /\^\{\}$/) next
+            if (tag !~ accept) next
+            if (exclude != "" && tag ~ exclude) next
+            if (tolower(tag) ~ /(rc|alpha|beta|pre|dev|preview)[._-]?[0-9]*$/) next
+            ver = tag
+            if (prefix != "" && index(ver, prefix) == 1) ver = substr(ver, length(prefix) + 1)
+            print ver "\t" tag
+        }' | sort -V | tail -n 1)
+    [[ -n "$best_pair" ]] || return 1
+    ver="${best_pair%%$'\t'*}"
+    tag="${best_pair#*$'\t'}"
+    sha=$(printf '%s\n' "$input" |
+        awk -F'\t' -v want="refs/tags/$tag^{}" '$2 == want {print $1}' | tail -n 1)
+    [[ -n "$sha" ]] || sha=$(printf '%s\n' "$input" |
+        awk -F'\t' -v want="refs/tags/$tag" '$2 == want {print $1}' | tail -n 1)
+    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || return 1
+    printf '%s|%s|%s\n' "$tag" "$ver" "$sha"
+}
+
+# Network fetch + pure selection. Arguments: url accept [exclude] [prefix].
+resolve_latest_git_tag() {
+    local tags
+    tags=$(resolve_git_tags "$1") || return 1
+    printf '%s\n' "$tags" | select_latest_stable_tag "$2" "${3:-}" "${4:-}"
+}
+
+# For repositories whose tags cannot represent current content (the font
+# repositories' newest tags are years older than HEAD): pin the HEAD commit
+# itself as the version, so markers stay truthful.
+resolve_git_head() {
+    local head_line sha
+    head_line=$(hardened_git ls-remote "$1" HEAD) || return 1
+    sha=$(printf '%s\n' "$head_line" | awk 'NR == 1 {print $1}')
+    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || return 1
+    printf '|%s|%s\n' "$sha" "$sha"
+}
+
+# Marker-first resolution: when a completion marker exists, its artifacts
+# are intact, and --latest was not given, the recorded version is reused
+# with NO network traffic. Arguments: name resolver-function [args...].
+resolve_pkg_version() {
+    local name="$1" marker_ver marker_commit
+    shift
+    if [[ "$latest_flag" -eq 0 ]] && marker_ver=$(read_marker_version "$name") &&
+        package_artifacts_present "$name"; then
+        marker_commit=$(read_marker_commit "$name" || true)
+        printf '|%s|%s\n' "$marker_ver" "$marker_commit"
+        return 0
+    fi
+    "$@"
+}
+
+# Clone the given ref at --depth 1 into a temp directory, verify that the
+# cloned HEAD is exactly the commit resolution recorded (annotated tags are
+# compared against their peeled commit; a moved tag fails instead of
+# silently substituting different content), then swap it into place and cd
+# there. Arguments: url name ref expected_commit [recurse].
 git_clone() {
-    local repo_url repo_name target_directory version store_prior_version recurse_opt
-    local recurse="${3:-0}"
-    local version_arg="${4:-}"
+    local repo_url="$1" repo_name="$2" ref="$3" expected_commit="$4" recurse="${5:-0}"
+    local target_directory="$packages/$repo_name" tmpdir cloned_head stale=""
+    local -a clone_args=(--depth 1 -q)
+    [[ "$recurse" -eq 1 ]] && clone_args+=(--recursive --shallow-submodules)
+    [[ -n "$ref" ]] && clone_args+=(--branch "$ref")
 
-    repo_url="$1"
-    repo_name="${2:-"${1##*/}"}"
-    repo_name="${repo_name//\./-}"
-    target_directory="$packages/$repo_name"
-
-    if [[ -n "$version_arg" ]]; then
-        version="$version_arg"
-    else
-        version=$(git_latest_version "$repo_url") || fail "Failed to determine latest version for \"$repo_url\". Line: ${LINENO}"
-    fi
-
-    [[ -f "$packages/$repo_name.done" ]] && store_prior_version=$(<"$packages/$repo_name.done")
-
-    if [[ ! "$version" == "$store_prior_version" ]]; then
-        [[ "$recurse" -eq 1 ]] && recurse_opt="--recursive"
-        [[ -d "$target_directory" ]] && safe_rm_rf "$target_directory"
-        log "Cloning repo: $repo_name"
-        # Clone the repository
-        if ! git clone --depth 1 ${recurse_opt:+"$recurse_opt"} -q "$repo_url" "$target_directory"; then
-            echo
-            echo -e "${RED}[ERROR]${NC} Failed to clone \"$target_directory\". Second attempt in 10 seconds..."
-            echo
-            sleep 10
-            if ! git clone --depth 1 ${recurse_opt:+"$recurse_opt"} -q "$repo_url" "$target_directory"; then
-                fail "Failed to clone \"$target_directory\". Exiting script. Line: ${LINENO}"
-            fi
+    tmpdir=$(mktemp -d "$packages/.clone.$repo_name.XXXXXX") ||
+        fail "Cannot create a clone temp directory for '$repo_name'."
+    log "Cloning repo: $repo_name${ref:+ (tag $ref)}"
+    if ! hardened_git clone "${clone_args[@]}" "$repo_url" "$tmpdir/src"; then
+        warn "Failed to clone \"$repo_name\". Second attempt in 10 seconds..."
+        sleep 10
+        safe_remove_tree "$tmpdir/src" "$packages"
+        if ! hardened_git clone "${clone_args[@]}" "$repo_url" "$tmpdir/src"; then
+            safe_remove_tree "$tmpdir" "$packages"
+            fail "Failed to clone \"$repo_url\"."
         fi
-        cd "$target_directory" || fail "Failed to cd into \"$target_directory\". Line: ${LINENO}"
     fi
-
-    log "Cloning completed: $version"
-    return 0
+    cloned_head=$(git -C "$tmpdir/src" rev-parse 'HEAD^{commit}') || {
+        safe_remove_tree "$tmpdir" "$packages"
+        fail "Cannot read HEAD of the fresh clone of '$repo_name'."
+    }
+    if [[ "$cloned_head" != "$expected_commit" ]]; then
+        safe_remove_tree "$tmpdir" "$packages"
+        fail "Clone verification failed for '$repo_name': HEAD $cloned_head is not the resolved commit $expected_commit (the ref may have moved upstream; rerun the script)."
+    fi
+    if [[ -e "$target_directory" ]]; then
+        stale="$target_directory.stale.$$"
+        mv -T -- "$target_directory" "$stale" || {
+            safe_remove_tree "$tmpdir" "$packages"
+            fail "Cannot set aside the previous checkout of '$repo_name'."
+        }
+    fi
+    if ! mv -T -- "$tmpdir/src" "$target_directory"; then
+        [[ -n "$stale" ]] && mv -T -- "$stale" "$target_directory"
+        safe_remove_tree "$tmpdir" "$packages"
+        fail "Cannot publish the checkout of '$repo_name'."
+    fi
+    [[ -n "$stale" ]] && safe_remove_tree "$stale" "$packages"
+    safe_remove_tree "$tmpdir" "$packages"
+    log "Cloning completed: $repo_name at $expected_commit"
+    cd "$target_directory" || fail "Failed to cd into \"$target_directory\"."
 }
 
 show_version() {

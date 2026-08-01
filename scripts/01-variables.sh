@@ -5,7 +5,6 @@
 cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
-regex_string='(Rc|rc|rC|RC|alpha|beta|master|pre)+[0-9]*$'
 GNU_PRIMARY_MIRROR="https://ftp.gnu.org/gnu"
 GNU_FALLBACK_MIRROR="https://ftpmirror.gnu.org"
 
