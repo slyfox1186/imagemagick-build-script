@@ -561,7 +561,7 @@ test_tag_selection_handles_ghostscript_and_freetype() {
             3333333333333333333333333333333333333333 gs10071 \
             4444444444444444444444444444444444444444 gs100501)
         result=$(printf '%s\n' "$gs_fixture" |
-            select_latest_stable_tag '^gs[0-9]{5}$') || exit 7
+            select_latest_stable_tag '^gs[0-9][0-9][0-9][0-9][0-9]$') || exit 7
         [[ "$result" == gs10071\|gs10071\|3333* ]] || {
             echo "ghostscript got: $result" >&2
             exit 8
@@ -888,7 +888,7 @@ UNIT
 test_tar_validation_rejects_hostile_archives() {
     local label="tar validation rejects traversal/absolute/multi-root/fifo/setuid/link escapes"
     local sandbox status kind ok=1
-    for kind in absolute traversal multiroot fifo setuid symlink_escape abs_symlink hardlink_escape; do
+    for kind in absolute traversal multiroot fifo setuid symlink_escape abs_symlink hardlink_escape control_char; do
         sandbox=$(make_sandbox)
         run_unit_in_sandbox "$sandbox" <<UNIT
         kind="$kind" python3 - <<'PY'
@@ -925,6 +925,8 @@ elif kind == "abs_symlink":
     add_link("root/link", "/etc/passwd")
 elif kind == "hardlink_escape":
     add_link("root/hard", "elsewhere/file", hard=True)
+elif kind == "control_char":
+    add_file("root/evil\x01name")
 t.close()
 PY
         if (validate_tar_archive evil.tar) >/dev/null 2>&1; then

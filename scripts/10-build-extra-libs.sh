@@ -28,7 +28,8 @@ stage_build_extra_libs() {
     fi
 
     resolved=$(resolve_pkg_version opencl-sdk resolve_latest_git_tag \
-        "https://github.com/KhronosGroup/OpenCL-SDK.git" '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}$' '' 'v') ||
+        "https://github.com/KhronosGroup/OpenCL-SDK.git" \
+        '^v[0-9][0-9][0-9][0-9]\.[0-9][0-9]\.[0-9][0-9]$' '' 'v') ||
         fail "Failed to resolve the latest OpenCL-SDK version."
     IFS='|' read -r tag ver commit <<<"$resolved"
     if build opencl-sdk "$ver"; then
