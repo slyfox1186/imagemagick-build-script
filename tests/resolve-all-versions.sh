@@ -65,7 +65,7 @@ run_resolver opencl-sdk resolve_latest_git_tag "https://github.com/KhronosGroup/
 run_resolver openjpeg resolve_latest_git_tag "https://github.com/uclouvain/openjpeg.git" '^v[0-9]+\.[0-9]+\.[0-9]+$' '' 'v'
 run_resolver lcms2 resolve_latest_git_tag "https://github.com/mm2/Little-CMS.git" '^lcms[0-9]+(\.[0-9]+)+$' '' 'lcms'
 run_resolver imagemagick resolve_latest_git_tag "https://github.com/ImageMagick/ImageMagick.git" '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$'
-run_resolver dejavu-fonts resolve_git_head "https://github.com/dejavu-fonts/dejavu-fonts.git"
+run_resolver roboto resolve_git_head "https://github.com/googlefonts/roboto.git"
 
 if [[ "$failures" -gt 0 ]]; then
     printf '%d resolver(s) FAILED\n' "$failures" >&2
