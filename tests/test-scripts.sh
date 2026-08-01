@@ -168,6 +168,14 @@ run_unit_in_sandbox() {
         source '$repo_root/scripts/04-functions-version.sh'
         source '$repo_root/scripts/05-functions-system.sh'
         source '$repo_root/scripts/06-setup-system.sh'
+        source '$repo_root/scripts/07-build-core-tools.sh'
+        source '$repo_root/scripts/08-build-image-libs.sh'
+        source '$repo_root/scripts/09-build-text-libs.sh'
+        source '$repo_root/scripts/10-build-extra-libs.sh'
+        source '$repo_root/scripts/11-build-fonts.sh'
+        source '$repo_root/scripts/12-build-imagemagick.sh'
+        source '$repo_root/scripts/13-finalize.sh'
+        source '$repo_root/tests/helpers.sh'
         $body
     " >unit-out.txt 2>unit-err.txt </dev/null)
     printf '%s' "$?" >"$sandbox/status.txt"
@@ -702,6 +710,86 @@ UNIT
     rm -rf -- "$sandbox"
 }
 
+# --- Phase 6: installation validation ---------------------------------------
+
+test_magick_validation_accepts_good_install() {
+    local label="installation validation accepts a matching version and delegate set"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        make_fake_magick "7.9.9-99" "fontconfig freetype fpx gslib gvc heic jng jp2 jpeg lcms png raqm rsvg tiff webp xml zlib"
+        validate_magick_installation "7.9.9-99" "$PWD/fake-magick"
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" != "0" ]]; then
+        tap_fail "$label" "status $status: $(<"$sandbox/unit-err.txt")"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_magick_validation_rejects_missing_delegate() {
+    local label="installation validation fails on a missing delegate and names it"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        make_fake_magick "7.9.9-99" "fontconfig freetype fpx gslib heic jng jp2 jpeg lcms png raqm rsvg tiff webp xml zlib"
+        validate_magick_installation "7.9.9-99" "$PWD/fake-magick"
+        exit 7
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" == "0" || "$status" == "7" ]]; then
+        tap_fail "$label" "a missing delegate was accepted (status $status)"
+    elif ! grep -q "missing expected delegates: gvc" "$sandbox/unit-err.txt"; then
+        tap_fail "$label" "the failure does not name the missing delegate: $(<"$sandbox/unit-err.txt")"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_magick_validation_rejects_version_mismatch() {
+    local label="installation validation fails on a version mismatch"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        make_fake_magick "7.9.9-99" "fontconfig freetype fpx gslib gvc heic jng jp2 jpeg lcms png raqm rsvg tiff webp xml zlib"
+        validate_magick_installation "7.9.9-98" "$PWD/fake-magick"
+        exit 7
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" == "0" || "$status" == "7" ]]; then
+        tap_fail "$label" "a version mismatch was accepted (status $status)"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_staged_validation_rejects_out_of_prefix_files() {
+    local label="staged-install validation rejects files outside /usr"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p staging/usr/local/bin staging/etc
+        printf '#!/bin/sh\necho ok\n' > staging/usr/local/bin/magick
+        chmod 755 staging/usr/local/bin/magick
+        printf 'oops\n' > staging/etc/stray.conf
+        validate_staged_install "$PWD/staging" "7.9.9-99"
+        exit 7
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" == "0" || "$status" == "7" ]]; then
+        tap_fail "$label" "an out-of-prefix staged file was accepted (status $status)"
+    elif ! grep -q "outside /usr" "$sandbox/unit-err.txt"; then
+        tap_fail "$label" "the failure does not identify the stray path"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
 # --- Phase 5: APT hygiene and OS support ------------------------------------
 
 test_apt_fails_closed_on_unavailable_required_package() {
@@ -1185,6 +1273,10 @@ test_git_clone_verifies_pinned_commit
 test_apt_fails_closed_on_unavailable_required_package
 test_no_autoremove_anywhere
 test_unsupported_distro_fails_before_mutation
+test_magick_validation_accepts_good_install
+test_magick_validation_rejects_missing_delegate
+test_magick_validation_rejects_version_mismatch
+test_staged_validation_rejects_out_of_prefix_files
 
 printf '1..%d\n' "$test_count"
 if [[ "$fail_count" -gt 0 ]]; then

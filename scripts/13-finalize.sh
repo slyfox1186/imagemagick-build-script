@@ -2,10 +2,9 @@
 # shellcheck shell=bash
 
 stage_finalize() {
-    # LDCONFIG MUST BE RUN NEXT TO UPDATE FILE CHANGES OR THE MAGICK COMMAND WILL NOT WORK
-    exec_root ldconfig || fail "ldconfig failed; the installed libraries may not be resolvable."
-
-    # SHOW THE NEWLY INSTALLED MAGICK VERSION
+    # ldconfig and the full live validation (version, delegates, policy,
+    # functional smoke) already ran inside the ImageMagick stage before its
+    # completion marker was written; this stage only reports and cleans up.
     show_version
 
     # PROMPT THE USER TO CLEAN UP THE BUILD FILES
