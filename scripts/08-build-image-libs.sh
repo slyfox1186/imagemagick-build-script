@@ -34,7 +34,11 @@ stage_build_image_libs() {
     if build libtiff "$ver"; then
         download "https://codeload.github.com/libsdl-org/libtiff/tar.gz/refs/tags/$tag" "libtiff-$ver.tar.gz"
         execute autoreconf -fi
-        execute sh configure --prefix="$workspace" --enable-cxx --disable-docs --with-pic
+        # webp is explicitly off: libwebp builds AFTER libtiff, so a clean
+        # run never has it; leaving the probe on made the result depend on
+        # leftover workspace state (and libtiff's link line does not carry
+        # libwebp's private libsharpyuv dependency).
+        execute sh configure --prefix="$workspace" --enable-cxx --disable-docs --disable-webp --with-pic
         execute make "-j$cpu_threads"
         execute make install
         build_done libtiff "$ver" "$commit"
