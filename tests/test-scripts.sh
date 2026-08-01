@@ -718,7 +718,7 @@ test_magick_validation_accepts_good_install() {
     local sandbox status
     sandbox=$(make_sandbox)
     run_unit_in_sandbox "$sandbox" <<'UNIT'
-        make_fake_magick "7.9.9-99" "fontconfig freetype fpx gslib gvc heic jng jp2 jpeg lcms png raqm rsvg tiff webp xml zlib"
+        make_fake_magick "7.9.9-99" "bzlib fontconfig freetype fpx gslib gvc heic jbig jng jp2 jpeg lcms lzma png raqm rsvg tiff webp xml zlib zstd"
         validate_magick_installation "7.9.9-99" "$PWD/fake-magick"
 UNIT
     status=$(<"$sandbox/status.txt")
@@ -735,7 +735,7 @@ test_magick_validation_rejects_missing_delegate() {
     local sandbox status
     sandbox=$(make_sandbox)
     run_unit_in_sandbox "$sandbox" <<'UNIT'
-        make_fake_magick "7.9.9-99" "fontconfig freetype fpx gslib heic jng jp2 jpeg lcms png raqm rsvg tiff webp xml zlib"
+        make_fake_magick "7.9.9-99" "bzlib fontconfig freetype fpx gslib heic jbig jng jp2 jpeg lcms lzma png raqm rsvg tiff webp xml zlib zstd"
         validate_magick_installation "7.9.9-99" "$PWD/fake-magick"
         exit 7
 UNIT
@@ -755,7 +755,7 @@ test_magick_validation_rejects_version_mismatch() {
     local sandbox status
     sandbox=$(make_sandbox)
     run_unit_in_sandbox "$sandbox" <<'UNIT'
-        make_fake_magick "7.9.9-99" "fontconfig freetype fpx gslib gvc heic jng jp2 jpeg lcms png raqm rsvg tiff webp xml zlib"
+        make_fake_magick "7.9.9-99" "bzlib fontconfig freetype fpx gslib gvc heic jbig jng jp2 jpeg lcms lzma png raqm rsvg tiff webp xml zlib zstd"
         validate_magick_installation "7.9.9-98" "$PWD/fake-magick"
         exit 7
 UNIT
