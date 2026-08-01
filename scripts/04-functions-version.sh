@@ -126,6 +126,12 @@ resolve_pkg() {
 # any resolution error.
 resolve_into() {
     local resolved
+    # Disabled packages resolve to a placeholder without any network
+    # traffic; build() then skips them via the same config gate.
+    if ! package_enabled "$1"; then
+        tag="" ver="disabled" commit=""
+        return 0
+    fi
     resolved=$(resolve_pkg "$1") ||
         fail "Failed to resolve the latest $1 version."
     IFS='|' read -r tag ver commit <<<"$resolved"

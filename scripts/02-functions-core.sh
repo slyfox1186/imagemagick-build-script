@@ -25,6 +25,157 @@ warn() {
     echo -e "${YELLOW}[WARNING]${NC} $1" >&2
 }
 
+# ---------------------------------------------------------------------------
+# Optional package selection (--config, minimal TOML subset)
+# ---------------------------------------------------------------------------
+
+# Every toggleable component this project builds from source, named exactly
+# like its completion marker. Keeping the registry beside the parser turns
+# a misspelled config key into an immediate error instead of a silently
+# ignored - and therefore silently disabled - package.
+readonly -a SUPPORTED_PACKAGE_NAMES=(
+    m4 libtool pkg-config
+    libjpeg-turbo libtiff libfpx ghostscript libpng libwebp
+    freetype libxml2 fontconfig fribidi harfbuzz raqm
+    jemalloc opencl-sdk openjpeg lcms2
+    source-code-pro source-sans-pro source-serif-pro roboto Fira
+    imagemagick
+)
+declare -Ag SUPPORTED_PACKAGES=()
+for _pkg_name in "${SUPPORTED_PACKAGE_NAMES[@]}"; do
+    SUPPORTED_PACKAGES["$_pkg_name"]=1
+done
+unset _pkg_name
+
+declare -Ag PACKAGE_SELECTION=()
+PACKAGE_SELECTION_CONFIG_FILE=""
+
+# With no config file every package is enabled (the historical full build).
+# Once a config is loaded it is an explicit allowlist: an omitted key is
+# disabled, exactly like the sibling ffmpeg-build-script.
+package_enabled() {
+    local name="$1"
+    [[ -n "${SUPPORTED_PACKAGES[$name]+x}" ]] ||
+        fail "package_enabled() received unknown package '$name'. Line: ${LINENO}"
+    if [[ -n "${PACKAGE_SELECTION[$name]+x}" ]]; then
+        [[ "${PACKAGE_SELECTION[$name]}" == "true" ]]
+    elif [[ -n "$PACKAGE_SELECTION_CONFIG_FILE" ]]; then
+        return 1
+    else
+        return 0
+    fi
+}
+
+trim_whitespace() {
+    local s="$1"
+    s="${s#"${s%%[![:space:]]*}"}"
+    printf '%s\n' "${s%"${s##*[![:space:]]}"}"
+}
+
+# Accepted grammar: [build] / [packages] tables and `key = true|false`
+# entries, with # comments. Anything else - unknown tables or keys, other
+# value types, duplicates, entries outside a table - fails with the
+# offending file:line instead of being silently ignored.
+load_package_selection_config() {
+    local config_file="$1" raw_line line key value entry table="" line_no=0
+    local -A seen_entries=() seen_tables=()
+
+    [[ -f "$config_file" ]] || fail "Config file not found: '$config_file'."
+    [[ -r "$config_file" ]] || fail "Config file is not readable: '$config_file'."
+    PACKAGE_SELECTION_CONFIG_FILE=$(canonicalize_path "$config_file")
+    PACKAGE_SELECTION=()
+
+    while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+        line_no=$((line_no + 1))
+        line=$(trim_whitespace "${raw_line%%#*}")
+        [[ -z "$line" ]] && continue
+
+        if [[ "$line" =~ ^\[([A-Za-z0-9._-]+)\]$ ]]; then
+            table="${BASH_REMATCH[1]}"
+            case "$table" in
+                build|packages) ;;
+                *) fail "Unsupported TOML table '[$table]' at $config_file:$line_no." ;;
+            esac
+            [[ -z "${seen_tables[$table]+x}" ]] ||
+                fail "Duplicate TOML table '[$table]' at $config_file:$line_no."
+            seen_tables["$table"]=1
+            continue
+        fi
+
+        if [[ "$line" =~ ^([A-Za-z0-9_-]+)[[:space:]]*=[[:space:]]*(true|false)$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            value="${BASH_REMATCH[2]}"
+            entry="$table.$key"
+            [[ -z "${seen_entries[$entry]+x}" ]] ||
+                fail "Duplicate config key '$key' at $config_file:$line_no."
+            seen_entries["$entry"]=1
+            case "$table" in
+                build)
+                    case "$key" in
+                        latest)
+                            # An explicit --latest on the command line wins
+                            # over the config file.
+                            if [[ "${latest_cli:-0}" -eq 0 ]]; then
+                                if [[ "$value" == "true" ]]; then
+                                    latest_flag=1
+                                else
+                                    latest_flag=0
+                                fi
+                            fi
+                            ;;
+                        *) fail "Unsupported '[build]' key '$key' at $config_file:$line_no." ;;
+                    esac
+                    ;;
+                packages)
+                    [[ -n "${SUPPORTED_PACKAGES[$key]+x}" ]] ||
+                        fail "Unsupported '[packages]' key '$key' at $config_file:$line_no."
+                    PACKAGE_SELECTION["$key"]="$value"
+                    ;;
+                *) fail "Config entries must appear inside [build] or [packages] ($config_file:$line_no)." ;;
+            esac
+            continue
+        fi
+
+        fail "Unsupported config syntax at $config_file:$line_no: '$raw_line'."
+    done <"$config_file"
+
+    log "Loaded package selection from $config_file (omitted packages are disabled)."
+}
+
+# Hard requirements of THIS project's build recipes: the text stack links
+# the workspace freetype/fribidi/harfbuzz static libraries, fontconfig is
+# built against the workspace freetype and libxml2, and libtiff's jpeg
+# support deliberately comes from the workspace libjpeg-turbo (no system
+# jpeg dev package is guaranteed). A bad selection fails here in seconds
+# instead of failing mid-build.
+validate_package_selection() {
+    local rule requirer required
+    local -a issues=()
+    for rule in harfbuzz:freetype raqm:freetype raqm:fribidi raqm:harfbuzz \
+        fontconfig:freetype fontconfig:libxml2 libtiff:libjpeg-turbo; do
+        requirer="${rule%%:*}" required="${rule##*:}"
+        if package_enabled "$requirer" && ! package_enabled "$required"; then
+            issues+=("'$requirer = true' requires '$required = true'")
+        fi
+    done
+    [[ "${#issues[@]}" -eq 0 ]] ||
+        fail "Invalid package selection: ${issues[*]}"
+}
+
+# The enabled-package list, in registry order. It feeds the build context
+# below: a selection change must invalidate completed work exactly like a
+# compiler or flag change would.
+enabled_package_summary() {
+    local name
+    local -a enabled=()
+    for name in "${SUPPORTED_PACKAGE_NAMES[@]}"; do
+        if package_enabled "$name"; then
+            enabled+=("$name")
+        fi
+    done
+    printf '%s\n' "${enabled[*]}"
+}
+
 resolve_working_meson() {
     local candidate primary_meson
 
@@ -158,6 +309,12 @@ compute_build_context() {
     printf 'cxxflags=%s\n' "$CXXFLAGS"
     printf 'cppflags=%s\n' "$CPPFLAGS"
     printf 'ldflags=%s\n' "$LDFLAGS"
+    # Only when a config file is active, so existing full builds keep their
+    # recorded context unchanged. Sequential configure probes see whatever
+    # the workspace holds, so a selection change invalidates everything.
+    if [[ -n "$PACKAGE_SELECTION_CONFIG_FILE" ]]; then
+        printf 'package_selection=%s\n' "$(enabled_package_summary)"
+    fi
 }
 
 refresh_build_context() {

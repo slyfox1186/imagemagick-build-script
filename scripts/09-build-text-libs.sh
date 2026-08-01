@@ -159,7 +159,9 @@ stage_build_text_libs() {
         execute ninja -C build install
         build_done harfbuzz "$ver" "$commit"
     fi
-    ensure_harfbuzz_gobject_shim "$ver"
+    if package_enabled harfbuzz; then
+        ensure_harfbuzz_gobject_shim "$ver"
+    fi
 
     resolve_into raqm
     if build raqm "$ver"; then
