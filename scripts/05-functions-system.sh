@@ -88,6 +88,27 @@ apt_pkgs() {
         fail "Required APT packages are unavailable on $OS $VER: ${unavailable_packages[*]}"
     fi
 
+    # Migration: older versions of this script installed the legacy
+    # libjpeg62 dev packages, whose headers conflict with the
+    # libjpeg-turbo8-dev that the libgraphviz-dev chain needs (observed
+    # live: apt refuses the install under --no-remove). They have no
+    # consumer in this build - jpeg comes from the workspace-built
+    # libjpeg-turbo - so exactly these known-legacy dev packages are
+    # removed first. --no-remove still blocks every other solver-proposed
+    # removal.
+    local -a legacy_conflicts=()
+    for pkg in libjpeg62-dev libjpeg62-turbo-dev; do
+        if dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed"; then
+            legacy_conflicts+=("$pkg")
+        fi
+    done
+    if [[ "${#legacy_conflicts[@]}" -gt 0 ]]; then
+        warn "Removing legacy dev package(s) installed by older versions of this script: ${legacy_conflicts[*]}"
+        exec_root env DEBIAN_FRONTEND=noninteractive \
+            apt-get remove -y "${legacy_conflicts[@]}" ||
+            fail "Failed to remove the legacy package(s): ${legacy_conflicts[*]}"
+    fi
+
     echo
     log "Installing missing packages:"
     printf "       %s\n" "${missing_packages[@]}"

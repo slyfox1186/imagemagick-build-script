@@ -113,13 +113,23 @@ build_root_marker_matches() {
     [[ "$recorded" == "magick-build-root $(canonicalize_path "$cwd")" ]]
 }
 
+# The lock file is opened in append mode so a FAILED attempt can never
+# truncate the holder's PID record. After acquiring, the file is rewritten
+# with this process's PID - purely diagnostic; the flock is authoritative.
 acquire_build_root_lock() {
-    local lock_file="$cwd/.magick-build-lock"
-    exec {MAGICK_LOCK_FD}>"$lock_file" ||
+    local lock_file="$cwd/.magick-build-lock" holder_pid holder_info
+    exec {MAGICK_LOCK_FD}>>"$lock_file" ||
         fail "Cannot open the lock file '$lock_file'."
     if ! flock -n "$MAGICK_LOCK_FD"; then
-        fail "Another build is already running in '$cwd'. Wait for it to finish before starting a new one."
+        holder_pid=$(head -n 1 -- "$lock_file" 2>/dev/null)
+        if [[ "$holder_pid" =~ ^[0-9]+$ ]] && kill -0 "$holder_pid" 2>/dev/null; then
+            holder_info=$(ps -o pid=,etime=,cmd= -p "$holder_pid" 2>/dev/null)
+            fail "Another build is already running in '$cwd' (PID $holder_pid, ${holder_info:-unknown command}). Wait for it, or stop it with: kill $holder_pid"
+        fi
+        fail "Another build is already running in '$cwd', but its main process is gone - a child of an earlier run is still holding the lock. Find it with: fuser -v '$lock_file' (it releases the lock when it exits or is killed)."
     fi
+    : >"$lock_file"
+    printf '%s\n' "$$" >>"$lock_file"
 }
 
 init_build_log() {
@@ -195,6 +205,10 @@ handle_signal() {
     local name="$1" code="$2"
     trap - INT TERM HUP EXIT
     stop_sudo_keepalive
+    # Terminate remaining direct children: bash runs background children
+    # with SIGINT ignored, so a ^C that killed this script would otherwise
+    # leave them running - and holding the build-root lock they inherited.
+    pkill -TERM -P $$ 2>/dev/null
     echo >&2
     echo -e "${YELLOW}[WARNING]${NC} Received SIG$name; stopping. Build files are preserved in '$cwd'." >&2
     exit "$code"
@@ -209,10 +223,15 @@ require_sudo() {
     sudo -v || fail "sudo authentication failed."
 }
 
+# Started BEFORE the build-root lock is acquired so the loop never
+# inherits the lock file descriptor, and self-terminating when the main
+# process dies: a SIGKILLed/hung-up run must not leave an immortal child
+# holding the lock while sudo's credential cache keeps it alive.
 start_sudo_keepalive() {
     [[ -n "${SUDO_KEEPALIVE_PID:-}" ]] && return 0
+    local parent_pid=$$
     (
-        while true; do
+        while kill -0 "$parent_pid" 2>/dev/null; do
             sudo -n true 2>/dev/null || exit
             sleep 60
         done

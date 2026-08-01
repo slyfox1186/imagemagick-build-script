@@ -329,17 +329,22 @@ test_build_root_lock_is_exclusive() {
         if bash -c "
             set -o pipefail
             debug=OFF
-            source \"'"$repo_root"'/scripts/01-variables.sh\"
-            source \"'"$repo_root"'/scripts/02-functions-core.sh\"
+            source \"$repo_root/scripts/01-variables.sh\"
+            source \"$repo_root/scripts/02-functions-core.sh\"
             acquire_build_root_lock
-        " >/dev/null 2>&1; then
+        " >/dev/null 2>lock-err.txt; then
             exit 7
         fi
+        # The conflict message must identify the live holder and say how
+        # to stop it.
+        grep -q "PID $$" lock-err.txt || exit 8
+        grep -q "kill $$" lock-err.txt || exit 8
 UNIT
     status=$(<"$sandbox/status.txt")
     case "$status" in
         0) tap_ok "$label" ;;
         7) tap_fail "$label" "the second acquisition unexpectedly succeeded" ;;
+        8) tap_fail "$label" "the conflict message does not identify the holder PID and kill command" ;;
         *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
     esac
     rm -rf -- "$sandbox"
@@ -820,9 +825,18 @@ UNIT
 }
 
 test_no_autoremove_anywhere() {
-    local label="no APT autoremove/remove/purge command exists in the scripts"
-    if grep -rnE 'apt-get[^|]*(autoremove|purge| remove )' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh >/dev/null 2>&1; then
-        tap_fail "$label" "$(grep -rnE 'apt-get[^|]*(autoremove|purge| remove )' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh)"
+    local label="no APT autoremove/purge exists; removals only via the legacy allowlist"
+    local removals
+    if grep -rnE 'apt-get[^|]*(autoremove|purge)' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh >/dev/null 2>&1; then
+        tap_fail "$label" "$(grep -rnE 'apt-get[^|]*(autoremove|purge)' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh)"
+        return
+    fi
+    # The single permitted removal is the legacy-conflict migration, which
+    # must only ever operate on the fixed allowlist array.
+    removals=$(grep -rnE 'apt-get remove' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh)
+    if [[ "$(printf '%s\n' "$removals" | grep -c .)" != "1" ]] ||
+        ! printf '%s\n' "$removals" | grep -q 'legacy_conflicts'; then
+        tap_fail "$label" "unexpected apt-get remove usage: $removals"
     else
         tap_ok "$label"
     fi
@@ -843,6 +857,55 @@ UNIT
         tap_fail "$label" "unsupported distro was not rejected (status $status)"
     elif ! grep -q "Unsupported distribution" "$sandbox/unit-err.txt"; then
         tap_fail "$label" "no clear unsupported-distribution message"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_sigint_releases_lock_and_children() {
+    local label="SIGINT exits 130, releases the lock, and leaves no children"
+    local sandbox driver_pid inner_pid status tries=0
+    sandbox=$(make_sandbox)
+    (cd "$sandbox" && env repo_root="$repo_root" SCRIPT_VERSION=0-test \
+        timeout 60 bash -s >driver-out.txt 2>driver-err.txt <<'DRIVER'
+        set -o pipefail
+        debug=OFF
+        cleanup_mode=prompt
+        latest_flag=0
+        source "$repo_root/scripts/01-variables.sh"
+        source "$repo_root/scripts/02-functions-core.sh"
+        sudo() { true; }
+        install_traps
+        start_sudo_keepalive
+        mkdir -p "$cwd"
+        acquire_build_root_lock
+        printf "%s" "$$" > ready
+        sleep 300 &
+        wait $!
+DRIVER
+    ) &
+    driver_pid=$!
+    while [[ ! -s "$sandbox/ready" && "$tries" -lt 100 ]]; do
+        sleep 0.1
+        tries=$((tries + 1))
+    done
+    if [[ ! -s "$sandbox/ready" ]]; then
+        tap_fail "$label" "the driver never reached the locked state"
+        kill "$driver_pid" 2>/dev/null
+        rm -rf -- "$sandbox"
+        return
+    fi
+    inner_pid=$(<"$sandbox/ready")
+    kill -INT "$inner_pid" 2>/dev/null
+    wait "$driver_pid"
+    status=$?
+    if [[ "$status" != "130" ]]; then
+        tap_fail "$label" "exit status was $status, expected 130: $(<"$sandbox/driver-err.txt")"
+    elif ! flock -n "$sandbox/magick-build-script/.magick-build-lock" -c true; then
+        tap_fail "$label" "the lock is still held after SIGINT"
+    elif pgrep -f "$sandbox" >/dev/null 2>&1; then
+        tap_fail "$label" "child processes survived SIGINT: $(pgrep -af "$sandbox")"
     else
         tap_ok "$label"
     fi
@@ -1276,6 +1339,7 @@ test_git_clone_verifies_pinned_commit
 test_apt_fails_closed_on_unavailable_required_package
 test_no_autoremove_anywhere
 test_unsupported_distro_fails_before_mutation
+test_sigint_releases_lock_and_children
 test_magick_validation_accepts_good_install
 test_magick_validation_rejects_missing_delegate
 test_magick_validation_rejects_version_mismatch
