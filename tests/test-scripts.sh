@@ -799,6 +799,7 @@ test_apt_fails_closed_on_unavailable_required_package() {
     run_unit_in_sandbox "$sandbox" <<'UNIT'
         OS=Ubuntu
         VER=24.04
+        VER_MAJOR=24
         dpkg-query() { printf 'unknown ok not-installed\n'; return 1; }
         apt-cache() { [[ "$2" == "libsharp-dev" ]] && return 100; return 0; }
         exec_root() { printf 'EXEC: %s\n' "$*" >> exec.log; }

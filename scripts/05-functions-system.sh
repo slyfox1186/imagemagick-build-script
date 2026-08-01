@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 
-apt_pkgs() {
-    local pkg
-    local -a pkgs=() extra_pkgs=("$@")
-    local -a missing_packages=() unavailable_packages=()
-
-    pkgs=(
-        "${extra_pkgs[@]}" autoconf autoconf-archive
-        binutils bison build-essential cmake curl
+# The complete required package list for the detected OS/release, one per
+# line on stdout. Shared by the installer below and by
+# tests/check-apt-availability.sh (the container availability gate).
+apt_required_packages() {
+    local -a pkgs=(
+        autoconf autoconf-archive
+        binutils bison build-essential bzip2 cmake curl
         flex fontforge git gperf intltool jq libc6
         libx11-dev libxext-dev libxt-dev
         libcpu-features-dev
@@ -18,11 +17,39 @@ apt_pkgs() {
         librust-malloc-buf-dev libsharp-dev libticonv-dev
         libtool libtool-bin libyuv-dev libyuv-utils libyuv0
         lsb-release m4 meson nasm ninja-build
-        pkg-config python3-dev yasm zlib1g-dev
+        pkg-config python3-dev xz-utils yasm zlib1g-dev
     )
 
-    [[ "$OS" == "Debian" ]] && pkgs+=(libjpeg62-turbo libjpeg62-turbo-dev)
-    [[ "$OS" == "Ubuntu" ]] && pkgs+=(libjpeg62 libjpeg62-dev)
+    case "$OS" in
+        Debian)
+            pkgs+=(libjpeg62-turbo libjpeg62-turbo-dev)
+            case "$VER_MAJOR" in
+                12) pkgs+=(libgegl-0.4-0 libcamd2) ;;
+                13) pkgs+=(libgegl-0.4-0t64 libcamd3) ;;
+                *) fail "Unsupported Debian version '$VER'. Supported: 12, 13." ;;
+            esac
+            ;;
+        Ubuntu)
+            pkgs+=(libjpeg62 libjpeg62-dev)
+            case "$VER_MAJOR" in
+                22|24) ;;
+                *) fail "Unsupported Ubuntu version '$VER'. Supported: 22.04, 24.04." ;;
+            esac
+            ;;
+        *) fail "Unsupported distribution '$OS'." ;;
+    esac
+
+    printf '%s\n' "${pkgs[@]}"
+}
+
+apt_pkgs() {
+    local pkg pkg_list
+    local -a pkgs=()
+    local -a missing_packages=() unavailable_packages=()
+
+    pkg_list=$(apt_required_packages) ||
+        fail "Could not determine the required APT package list for $OS $VER."
+    mapfile -t pkgs <<<"$pkg_list"
 
     log "Checking package installation status..."
 
@@ -65,14 +92,6 @@ apt_pkgs() {
         apt-get install -y --no-remove "${missing_packages[@]}" ||
         fail "apt-get install failed. Line: ${LINENO}"
     echo
-}
-
-debian_version() {
-    case "$VER_MAJOR" in
-        12) apt_pkgs libgegl-0.4-0 libcamd2 ;;
-        13) apt_pkgs libgegl-0.4-0t64 libcamd3 ;;
-        *)  fail "Unsupported Debian version '$VER'. Supported: 12, 13. Line: ${LINENO}" ;;
-    esac
 }
 
 get_os_version() {
