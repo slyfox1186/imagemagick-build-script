@@ -5,18 +5,23 @@
 # line on stdout. Shared by the installer below and by
 # tests/check-apt-availability.sh (the container availability gate).
 apt_required_packages() {
+    # The libdjvulibre/fftw3/lqr/openexr/pango/raw/wmf/zip dev packages
+    # exist purely to light up their ImageMagick delegates (djvu, fftw,
+    # lqr, openexr, pangocairo, raw, wmf, zip); all of them are packaged
+    # on every supported release (verified via the availability gate).
     local -a pkgs=(
         autoconf autoconf-archive autopoint
         binutils bison build-essential bzip2 cmake curl
         flex fontforge fonts-dejavu-core git gperf intltool jq libc6
         libx11-dev libxext-dev libxt-dev
-        libcpu-features-dev
+        libcpu-features-dev libdjvulibre-dev libfftw3-dev
         libfont-ttf-perl libgc-dev libgc1 libgegl-common
         libgl2ps-dev libglib2.0-dev libgraphviz-dev libgs-dev libheif-dev
-        libhwy-dev librsvg2-dev librust-jpeg-decoder-dev
+        libhwy-dev liblqr-1-0-dev libopenexr-dev libpango1.0-dev
+        libraw-dev librsvg2-dev librust-jpeg-decoder-dev
         librust-malloc-buf-dev libsharp-dev libticonv-dev
-        libtool libtool-bin libyuv-dev libyuv-utils libyuv0
-        lsb-release m4 meson nasm ninja-build
+        libtool libtool-bin libwmf-dev libyuv-dev libyuv-utils libyuv0
+        libzip-dev lsb-release m4 meson nasm ninja-build
         pkg-config python3-dev xz-utils yasm zlib1g-dev
     )
 
