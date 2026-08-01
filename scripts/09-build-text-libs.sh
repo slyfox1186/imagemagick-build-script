@@ -128,7 +128,13 @@ stage_build_text_libs() {
     IFS='|' read -r tag ver commit <<<"$resolved"
     if build harfbuzz "$ver"; then
         download "https://github.com/harfbuzz/harfbuzz/archive/refs/tags/$tag.tar.gz" "harfbuzz-$ver.tar.gz"
-        extracmds=("-D"{benchmark,cairo,docs,glib,gobject,icu,introspection,tests}"=disabled")
+        # glib/gobject stay ENABLED: the workspace harfbuzz.pc shadows the
+        # system one, and on Debian 13 librsvg's Requires chain resolves
+        # harfbuzz-gobject - with no workspace harfbuzz-gobject.pc the
+        # version conflict against the system's pinned harfbuzz broke the
+        # rsvg delegate probe (verified in config.log).
+        extracmds=("-D"{benchmark,cairo,docs,icu,introspection,tests}"=disabled"
+            "-D"{glib,gobject}"=enabled")
         execute meson setup build --prefix="$workspace" \
                                   --buildtype=release \
                                   --default-library=static \
