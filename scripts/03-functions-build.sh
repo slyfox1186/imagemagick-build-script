@@ -510,5 +510,6 @@ show_version() {
     echo
     log "ImageMagick's new version is:"
     echo
-    magick -version 2>/dev/null || fail "Failure to execute the command: magick -version. Line: ${LINENO}"
+    /usr/local/bin/magick -version ||
+        fail "Failure to execute the command: /usr/local/bin/magick -version"
 }
