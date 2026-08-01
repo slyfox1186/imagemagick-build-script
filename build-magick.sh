@@ -184,9 +184,12 @@ if [[ "$latest_flag" -eq 1 ]]; then
 fi
 
 install_traps
-initialize_build_root
+# sudo validation and its keepalive come BEFORE the build-root lock so the
+# keepalive subshell never inherits the lock file descriptor (a hard-killed
+# run must not leave the lock held by a surviving child).
 require_sudo
 start_sudo_keepalive
+initialize_build_root
 
 # Stage definitions (06-13 define one stage function each)
 require_script "$SCRIPTS_DIR/06-setup-system.sh"
