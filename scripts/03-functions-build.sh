@@ -85,6 +85,13 @@ read_marker_commit() {
 # Returns 0 when the package must be built, 1 when it can be skipped.
 build() {
     local name="$1" version="$2" recorded
+    # Central config gate: stage code calls resolve_into/build
+    # unconditionally, and disabled packages fall through here.
+    if ! package_enabled "$name"; then
+        echo
+        log "$name is disabled by the package selection config; skipping."
+        return 1
+    fi
     echo
     echo -e "${GREEN}Building ${YELLOW}$name${NC} - ${GREEN}version ${YELLOW}$version${NC}"
     echo "=========================================="
@@ -544,6 +551,8 @@ git_clone() {
 # displayed and validated the full version block this run.
 show_version() {
     [[ -n "${MAGICK_VALIDATED:-}" ]] && return 0
+    # Nothing to show when the config skipped the final application.
+    package_enabled imagemagick || return 0
     local version_line
     version_line=$(/usr/local/bin/magick -version | head -n 1) ||
         fail "Failure to execute the command: /usr/local/bin/magick -version"

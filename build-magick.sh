@@ -25,6 +25,9 @@ Options:
   -l, --latest       Re-resolve the latest upstream versions instead of
                      reusing the versions recorded by a previous run.
   -d, --debug        Stream build output to the terminal as well as the log.
+      --config PATH  Load build/package choices from a TOML file. Copy
+                     example.toml to custom.toml and edit it; every package
+                     omitted from the file is disabled.
       --cleanup      Remove the build directory after a successful build.
       --no-cleanup   Keep the build directory (skips the interactive prompt).
   -v, --version      Print the script version and exit.
@@ -33,6 +36,7 @@ Options:
 Examples:
   build-magick.sh
   build-magick.sh --workers 24 --latest
+  build-magick.sh --config ./custom.toml
   build-magick.sh --no-cleanup
 EOF
 }
@@ -40,8 +44,10 @@ EOF
 parse_args() {
     local workers_arg="" workers_set=0
     latest_flag=0
+    latest_cli=0
     debug=OFF
     cleanup_mode=prompt
+    config_file=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -62,10 +68,35 @@ parse_args() {
                 ;;
             -l|--latest)
                 latest_flag=1
+                latest_cli=1
                 shift
                 ;;
             -d|--debug)
                 debug=ON
+                shift
+                ;;
+            --config)
+                if [[ $# -lt 2 || -z "$2" ]]; then
+                    echo "Error: --config requires a file path." >&2
+                    exit 1
+                fi
+                if [[ -n "$config_file" ]]; then
+                    echo "Error: --config may only be specified once." >&2
+                    exit 1
+                fi
+                config_file="$2"
+                shift 2
+                ;;
+            --config=*)
+                if [[ -n "$config_file" ]]; then
+                    echo "Error: --config may only be specified once." >&2
+                    exit 1
+                fi
+                config_file="${1#*=}"
+                if [[ -z "$config_file" ]]; then
+                    echo "Error: --config requires a file path." >&2
+                    exit 1
+                fi
                 shift
                 ;;
             --cleanup)
@@ -170,6 +201,13 @@ require_script "$SCRIPTS_DIR/05-functions-system.sh"
 source "$SCRIPTS_DIR/05-functions-system.sh"
 
 box_out_banner "ImageMagick Build Script v$SCRIPT_VERSION"
+
+# Loaded before any state is touched so a bad config or an impossible
+# selection fails immediately; the selection also feeds the build context.
+if [[ -n "$config_file" ]]; then
+    load_package_selection_config "$config_file"
+    validate_package_selection
+fi
 
 if [[ -n "${GNU_COMPILER_VERSION:-}" ]]; then
     log "Using GNU compiler toolchain version $GNU_COMPILER_VERSION: $CC and $CXX."

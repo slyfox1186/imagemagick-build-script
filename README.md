@@ -47,6 +47,7 @@ bash build-magick.sh
 | `-w, --workers N` | Parallel job count for make/ninja. Default: detected CPU threads. |
 | `-l, --latest` | Re-resolve the latest upstream versions instead of reusing the versions recorded by a previous run. |
 | `-d, --debug` | Stream build output to the terminal as well as the log. |
+| `--config <path>` | Load build/package choices from a TOML file (see below). |
 | `--cleanup` | Remove the build directory after a successful build. |
 | `--no-cleanup` | Keep the build directory (skips the interactive prompt). |
 | `-v, --version` | Print the script version and exit. |
@@ -54,6 +55,30 @@ bash build-magick.sh
 
 `--help` and `--version` are side-effect free: they create nothing, touch
 nothing, and never prompt for sudo.
+
+## Package selection (`--config`)
+
+```bash
+cp example.toml custom.toml   # edit it, then:
+bash build-magick.sh --config ./custom.toml
+```
+
+The config is a deliberately small TOML subset - `[build]` and
+`[packages]` tables with `key = true|false` entries - and an explicit
+allowlist: once a config is loaded, **every package omitted from it is
+disabled**. Without `--config`, everything builds (the default full
+build). `example.toml` lists every supported key with a description.
+
+- Disabling a package skips its source build and passes an explicit
+  `--without` flag to ImageMagick's configure; its delegate is also
+  removed from the final validation's required set.
+- Impossible selections fail up front with the exact conflict (the raqm
+  stack needs freetype/fribidi/harfbuzz, fontconfig needs
+  freetype/libxml2, libtiff needs libjpeg-turbo).
+- The APT baseline is not configurable: system-package delegates (heic,
+  rsvg, gvc, bzlib, ...) are always installed.
+- The active selection is recorded in the build context, so changing it
+  automatically invalidates completed work - no manual cleanup needed.
 
 ## Build state model
 

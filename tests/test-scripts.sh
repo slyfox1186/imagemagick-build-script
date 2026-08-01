@@ -823,6 +823,160 @@ UNIT
     rm -rf -- "$sandbox"
 }
 
+# --- Package selection config (--config, TOML subset) -----------------------
+
+test_config_example_file_is_valid_and_complete() {
+    local label="example.toml parses, enables every package, and feeds the build context"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        load_package_selection_config "$repo_root/example.toml"
+        for name in "${SUPPORTED_PACKAGE_NAMES[@]}"; do
+            package_enabled "$name" ||
+                { echo "example.toml leaves $name disabled" >&2; exit 9; }
+        done
+        [[ "$latest_flag" == "0" ]] || { echo "latest leaked on" >&2; exit 8; }
+        compute_build_context | grep -q '^package_selection=' ||
+            { echo "context lacks the selection line" >&2; exit 7; }
+        exit 0
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" != "0" ]]; then
+        tap_fail "$label" "status $status: $(<"$sandbox/unit-err.txt")"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_config_rejects_invalid_input() {
+    local label="the config parser rejects unknown keys/tables, bad values, and duplicates"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkcase() { printf '%s\n' "$@" > bad.toml; }
+        expect_fail() {
+            if ( load_package_selection_config bad.toml ) 2>>parse-errors.txt; then
+                echo "accepted: $1" >&2
+                exit 9
+            fi
+            return 0
+        }
+        mkcase '[packages]' 'not-a-real-pkg = true';    expect_fail unknown-package-key
+        mkcase '[delegates]' 'freetype = true';         expect_fail unknown-table
+        mkcase '[build]' 'workers = true';              expect_fail unknown-build-key
+        mkcase '[packages]' 'freetype = yes';           expect_fail non-boolean-value
+        mkcase '[packages]' 'freetype = true' 'freetype = false'
+        expect_fail duplicate-key
+        mkcase '[packages]' 'freetype = true' '[packages]' 'raqm = true'
+        expect_fail duplicate-table
+        mkcase 'freetype = true';                       expect_fail entry-outside-table
+        grep -q 'bad.toml:2' parse-errors.txt ||
+            { echo "errors do not carry file:line" >&2; exit 8; }
+        exit 0
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" != "0" ]]; then
+        tap_fail "$label" "status $status: $(<"$sandbox/unit-err.txt")"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_config_dependency_validation() {
+    local label="an impossible selection (raqm without freetype) fails up front"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        printf '[packages]\nraqm = true\n' > sel.toml
+        load_package_selection_config sel.toml
+        validate_package_selection
+        exit 7
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" == "0" || "$status" == "7" ]]; then
+        tap_fail "$label" "the impossible selection was accepted (status $status)"
+    elif ! grep -q "raqm" "$sandbox/unit-err.txt" ||
+        ! grep -q "freetype" "$sandbox/unit-err.txt"; then
+        tap_fail "$label" "the failure does not name both packages: $(<"$sandbox/unit-err.txt")"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_config_disabled_package_skips_resolution_and_build() {
+    local label="a disabled package is skipped without version resolution"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        printf '[packages]\nfreetype = true\n' > sel.toml
+        load_package_selection_config sel.toml
+        resolve_pkg() { echo "resolve_pkg($1)" >> resolve.log; printf 't|1.0|\n'; }
+        tag=x ver=x commit=x
+        resolve_into lcms2
+        [[ "$ver" == "disabled" ]] || { echo "ver='$ver'" >&2; exit 9; }
+        if build lcms2 "$ver"; then echo "build did not skip" >&2; exit 8; fi
+        [[ -e resolve.log ]] && { echo "resolver ran" >&2; exit 7; }
+        exit 0
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" != "0" ]]; then
+        tap_fail "$label" "status $status: $(<"$sandbox/unit-err.txt")"
+    elif ! grep -q "disabled by the package selection config" "$sandbox/unit-out.txt"; then
+        tap_fail "$label" "no skip message was printed"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_config_trims_required_delegates() {
+    local label="disabling a delegate provider removes it from the required set"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        {
+            printf '[packages]\n'
+            for name in "${SUPPORTED_PACKAGE_NAMES[@]}"; do
+                case "$name" in
+                    ghostscript|libfpx) printf '%s = false\n' "$name" ;;
+                    *) printf '%s = true\n' "$name" ;;
+                esac
+            done
+        } > sel.toml
+        load_package_selection_config sel.toml
+        make_fake_magick "7.9.9-99" "bzlib fontconfig freetype gvc heic jbig jng jp2 jpeg lcms lzma png raqm rsvg tiff webp xml zlib zstd"
+        validate_magick_installation "7.9.9-99" "$PWD/fake-magick"
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" != "0" ]]; then
+        tap_fail "$label" "status $status: $(<"$sandbox/unit-err.txt")"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
+test_config_missing_file_fails_before_any_work() {
+    local label="--config with a missing file fails without side effects"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_entry_in_sandbox "$sandbox" --config ./no-such-config.toml
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" == "0" ]]; then
+        tap_fail "$label" "a missing config file was accepted"
+    elif ! grep -q "no-such-config.toml" "$sandbox/stderr.txt"; then
+        tap_fail "$label" "error does not name the missing file: $(<"$sandbox/stderr.txt")"
+    elif ! sandbox_is_clean "$sandbox"; then
+        tap_fail "$label" "files were created: $(cd "$sandbox" && find . -mindepth 1)"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
 # --- Phase 5: APT hygiene and OS support ------------------------------------
 
 test_apt_fails_closed_on_unavailable_required_package() {
@@ -1371,6 +1525,12 @@ test_magick_validation_rejects_missing_delegate
 test_magick_validation_rejects_version_mismatch
 test_configure_change_invalidates_marker
 test_staged_validation_rejects_out_of_prefix_files
+test_config_example_file_is_valid_and_complete
+test_config_rejects_invalid_input
+test_config_dependency_validation
+test_config_disabled_package_skips_resolution_and_build
+test_config_trims_required_delegates
+test_config_missing_file_fails_before_any_work
 
 printf '1..%d\n' "$test_count"
 if [[ "$fail_count" -gt 0 ]]; then
