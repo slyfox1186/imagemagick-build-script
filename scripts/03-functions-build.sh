@@ -1,29 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 
-execute() {
-    echo "$ $*"
-    local output
-
-    if [[ "$debug" == "ON" ]]; then
-        if ! output=$("$@"); then
-            notify-send -t 5000 "Failed to execute: $*" 2>/dev/null
-            fail "Failed to execute: $*"
-        fi
-    else
-        if ! output=$("$@" 2>&1); then
-            notify-send -t 5000 "Failed to execute: $*" 2>/dev/null
-            echo "$output" >&2
-            fail "Failed to execute: $*. Line: ${LINENO}"
-        fi
-    fi
-}
-
-try_execute() {
-    echo "$ $*"
-    "$@"
-}
-
 build() {
     echo
     echo -e "${GREEN}Building ${YELLOW}$1${NC} - ${GREEN}version ${YELLOW}$2${NC}"

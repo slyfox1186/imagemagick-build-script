@@ -2,12 +2,10 @@
 # shellcheck shell=bash
 
 # SET GLOBAL VARIABLES
-script_ver=1.2.0
 cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
 regex_string='(Rc|rc|rC|RC|alpha|beta|master|pre)+[0-9]*$'
-debug=OFF
 GNU_PRIMARY_MIRROR="https://ftp.gnu.org/gnu"
 GNU_FALLBACK_MIRROR="https://ftpmirror.gnu.org"
 
@@ -40,10 +38,6 @@ box_out_banner() {
     tput sgr0 2>/dev/null || true
 }
 
-# CREATE OUTPUT DIRECTORIES
-[[ ! -d "$packages" ]] && mkdir -p "$packages"
-[[ ! -d "$workspace" ]] && mkdir -p "$workspace"
-
 # SET THE COMPILERS TO USE AND THE COMPILER OPTIMIZATION FLAGS
 select_gnu_compiler_pair() {
     local candidate candidate_version best_version=""
@@ -74,10 +68,20 @@ select_gnu_compiler_pair() {
 }
 
 select_gnu_compiler_pair
+
+# Multiarch tuple for system library paths, derived from the compiler rather
+# than hard-coded, with a static fallback for bootstrap runs where the
+# compiler is not installed yet (the APT stage installs it before any build).
+MULTIARCH_TUPLE="$("$CC" -print-multiarch 2>/dev/null || true)"
+[[ -z "$MULTIARCH_TUPLE" ]] && MULTIARCH_TUPLE="$(uname -m)-linux-gnu"
+
 CFLAGS="-O3 -fPIC -pipe -march=native -fstack-protector-strong"
 CXXFLAGS="$CFLAGS"
 CPPFLAGS="-I$workspace/include -I/usr/local/include -I/usr/include -D_FORTIFY_SOURCE=2"
-LDFLAGS="-Wl,-O1 -Wl,--as-needed -Wl,-rpath,/usr/local/lib64:/usr/local/lib"
+# The workspace -L paths are required so configure-time link probes (for
+# example ImageMagick's FlashPIX -lfpx check) can find workspace-built
+# libraries that ship no pkg-config file.
+LDFLAGS="-L$workspace/lib64 -L$workspace/lib -Wl,-O1 -Wl,--as-needed -Wl,-rpath,/usr/local/lib64:/usr/local/lib"
 export CC CXX CFLAGS CXXFLAGS CPPFLAGS LDFLAGS GNU_PRIMARY_MIRROR GNU_FALLBACK_MIRROR GNU_COMPILER_VERSION
 
 # SET THE AVAILABLE CPU THREAD COUNT FOR PARALLEL PROCESSING
@@ -98,17 +102,17 @@ export PATH
 # explicit system package directories, and ignore /usr/local overrides.
 WORKSPACE_PKG_CONFIG_DIRS="\
 $workspace/lib64/pkgconfig:\
-$workspace/lib/x86_64-linux-gnu/pkgconfig:\
+$workspace/lib/$MULTIARCH_TUPLE/pkgconfig:\
 $workspace/lib/pkgconfig:\
 $workspace/share/pkgconfig\
 "
 SYSTEM_PKG_CONFIG_DIRS="\
-/usr/lib/x86_64-linux-gnu/pkgconfig:\
+/usr/lib/$MULTIARCH_TUPLE/pkgconfig:\
 /usr/share/pkgconfig:\
 /usr/lib/pkgconfig:\
-/lib/x86_64-linux-gnu/pkgconfig:\
+/lib/$MULTIARCH_TUPLE/pkgconfig:\
 /lib/pkgconfig\
 "
 PKG_CONFIG_PATH="$WORKSPACE_PKG_CONFIG_DIRS"
 PKG_CONFIG_LIBDIR="$WORKSPACE_PKG_CONFIG_DIRS:$SYSTEM_PKG_CONFIG_DIRS"
-export WORKSPACE_PKG_CONFIG_DIRS SYSTEM_PKG_CONFIG_DIRS PKG_CONFIG_PATH PKG_CONFIG_LIBDIR
+export WORKSPACE_PKG_CONFIG_DIRS SYSTEM_PKG_CONFIG_DIRS PKG_CONFIG_PATH PKG_CONFIG_LIBDIR MULTIARCH_TUPLE
