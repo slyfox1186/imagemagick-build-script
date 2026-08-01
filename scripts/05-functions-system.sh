@@ -5,23 +5,35 @@
 # line on stdout. Shared by the installer below and by
 # tests/check-apt-availability.sh (the container availability gate).
 apt_required_packages() {
-    # The libdjvulibre/fftw3/lqr/openexr/pango/raw/wmf/zip dev packages
-    # exist purely to light up their ImageMagick delegates (djvu, fftw,
-    # lqr, openexr, pangocairo, raw, wmf, zip); all of them are packaged
-    # on every supported release (verified via the availability gate).
+    # Delegate-enabling packages, all verified available on every
+    # supported release via the availability gate:
+    # - libdjvulibre/fftw3/lqr/openexr/pango/raw/wmf/zip dev packages
+    #   light up the djvu/fftw/lqr/openexr/pangocairo/raw/wmf/zip
+    #   delegates.
+    # - libbz2/libjbig/liblzma/libzstd dev packages make the
+    #   bzlib/jbig/lzma/zstd delegates guaranteed instead of depending on
+    #   transitive installs.
+    # - fonts-urw-base35 provides the exact directory the
+    #   --with-urw-base35-font-dir configure flag points at.
+    # - ghostscript provides the runtime `gs` binary: delegates.xml
+    #   shells out to it for PDF/PS work, and the workspace-built gs is
+    #   deleted with the build tree on cleanup.
+    # - ffmpeg is the runtime video delegate (mpeg/mp4/webm coders).
     local -a pkgs=(
         autoconf autoconf-archive autopoint
-        binutils bison build-essential bzip2 cmake curl
-        flex fontforge fonts-dejavu-core git gperf intltool jq libc6
+        binutils bison build-essential bzip2 cmake curl ffmpeg
+        flex fontforge fonts-dejavu-core fonts-urw-base35 ghostscript
+        git gperf intltool jq libbz2-dev libc6
         libx11-dev libxext-dev libxt-dev
         libcpu-features-dev libdjvulibre-dev libfftw3-dev
         libfont-ttf-perl libgc-dev libgc1 libgegl-common
         libgl2ps-dev libglib2.0-dev libgraphviz-dev libgs-dev libheif-dev
-        libhwy-dev liblqr-1-0-dev libopenexr-dev libpango1.0-dev
+        libhwy-dev libjbig-dev liblqr-1-0-dev liblzma-dev
+        libopenexr-dev libpango1.0-dev
         libraw-dev librsvg2-dev librust-jpeg-decoder-dev
         librust-malloc-buf-dev libsharp-dev libticonv-dev
         libtool libtool-bin libwmf-dev libyuv-dev libyuv-utils libyuv0
-        libzip-dev lsb-release m4 meson nasm ninja-build
+        libzip-dev libzstd-dev lsb-release m4 meson nasm ninja-build
         pkg-config python3-dev xz-utils yasm zlib1g-dev
     )
 

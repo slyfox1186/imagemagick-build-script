@@ -110,8 +110,8 @@ The script only reports success after the installed `/usr/local/bin/magick`:
 
 1. reports exactly the version that was resolved and built,
 2. contains every delegate this script exists to provide
-   (fontconfig, freetype, fpx, gslib, gvc, heic, jng, jp2, jpeg, lcms,
-   png, raqm, rsvg, tiff, webp, xml, zlib),
+   (bzlib, fontconfig, freetype, fpx, gslib, gvc, heic, jbig, jng, jp2,
+   jpeg, lcms, lzma, png, raqm, rsvg, tiff, webp, xml, zlib, zstd),
 3. exposes a resolvable `MagickCore.pc` under `/usr/local/lib/pkgconfig`,
 4. completes a real conversion round-trip (`logo:` → PNG → WebP).
 
