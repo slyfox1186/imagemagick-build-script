@@ -768,6 +768,38 @@ UNIT
     rm -rf -- "$sandbox"
 }
 
+test_configure_change_invalidates_marker() {
+    local label="a configure-fingerprint change invalidates the completion marker"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$packages"
+        fp_file="$packages/imagemagick.configure.sha256"
+        printf '7.9.9-99\n' > "$packages/imagemagick.done"
+        record_configure_fingerprint "$fp_file" "aaa111"
+        # Same fingerprint: the marker must survive.
+        invalidate_marker_on_config_change imagemagick "$fp_file" "aaa111"
+        [[ -f "$packages/imagemagick.done" ]] || exit 7
+        # Changed fingerprint: the marker must be removed.
+        invalidate_marker_on_config_change imagemagick "$fp_file" "bbb222"
+        [[ ! -e "$packages/imagemagick.done" ]] || exit 8
+        # Missing fingerprint record (pre-upgrade state): also invalidates.
+        printf '7.9.9-99\n' > "$packages/imagemagick.done"
+        rm -f -- "$fp_file"
+        invalidate_marker_on_config_change imagemagick "$fp_file" "aaa111"
+        [[ ! -e "$packages/imagemagick.done" ]] || exit 9
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "an unchanged fingerprint removed the marker" ;;
+        8) tap_fail "$label" "a changed fingerprint did not remove the marker" ;;
+        9) tap_fail "$label" "a missing fingerprint record did not invalidate" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
 test_staged_validation_rejects_out_of_prefix_files() {
     local label="staged-install validation rejects files outside /usr"
     local sandbox status
@@ -1336,6 +1368,7 @@ test_sigint_releases_lock_and_children
 test_magick_validation_accepts_good_install
 test_magick_validation_rejects_missing_delegate
 test_magick_validation_rejects_version_mismatch
+test_configure_change_invalidates_marker
 test_staged_validation_rejects_out_of_prefix_files
 
 printf '1..%d\n' "$test_count"

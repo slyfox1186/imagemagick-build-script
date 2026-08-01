@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 
-CURL_USER_AGENT="imagemagick-build-script/$SCRIPT_VERSION (+https://github.com/slyfox1186/imagemagick-build-script)"
+CURL_USER_AGENT='Mozilla/5.0 (X11; Linux x86_64; rv:153.0) Gecko/20100101 Firefox/153.0'
 
 # ---------------------------------------------------------------------------
 # Completion markers and artifact contracts
@@ -120,6 +120,30 @@ build_done() {
     fi
     mv -f -- "$tmp" "$packages/$name.done" ||
         fail "Cannot publish the completion marker for '$name'."
+}
+
+# A package whose configure options changed must rebuild even when its
+# resolved version is unchanged (observed live: newly enabled delegate
+# packages did nothing because ImageMagick's version marker still
+# matched). The caller computes a fingerprint over its configure
+# arguments; a mismatch or missing record invalidates the marker.
+invalidate_marker_on_config_change() {
+    local name="$1" fingerprint_file="$2" fingerprint="$3" recorded
+    [[ -f "$packages/$name.done" ]] || return 0
+    recorded=$(head -n 1 -- "$fingerprint_file" 2>/dev/null)
+    if [[ "$recorded" != "$fingerprint" ]]; then
+        warn "$name's configure options changed since the last build; rebuilding it."
+        rm -f -- "$packages/$name.done"
+    fi
+}
+
+record_configure_fingerprint() {
+    local fingerprint_file="$1" fingerprint="$2" tmp
+    tmp=$(mktemp "${fingerprint_file%/*}/.fingerprint.XXXXXX") ||
+        fail "Cannot record the configure fingerprint."
+    printf '%s\n' "$fingerprint" >"$tmp"
+    mv -f -- "$tmp" "$fingerprint_file" ||
+        fail "Cannot publish the configure fingerprint."
 }
 
 # ---------------------------------------------------------------------------
