@@ -77,15 +77,17 @@ get_os_version() {
         OS=$(lsb_release -si)
         VER=$(lsb_release -sr)
     elif [[ -f /etc/os-release ]]; then
-        # shellcheck source=/etc/os-release
+        # The sourced file's variables (ID, NAME, VERSION_ID) only exist at
+        # runtime, so ShellCheck must not follow or analyze the host's copy.
+        # shellcheck source=/dev/null
         source /etc/os-release
-        case "$ID" in
+        case "${ID:-}" in
             debian) OS="Debian" ;;
             ubuntu) OS="Ubuntu" ;;
             arch) OS="Arch" ;;
-            *) OS="${NAME:-$ID}" ;;
+            *) OS="${NAME:-${ID:-}}" ;;
         esac
-        VER="$VERSION_ID"
+        VER="${VERSION_ID:-}"
     else
         fail "Failed to define the \$OS and/or \$VER variables. Line: ${LINENO}"
     fi

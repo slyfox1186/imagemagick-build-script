@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034
 set -o pipefail
 
 # Script Version: 1.2.0
