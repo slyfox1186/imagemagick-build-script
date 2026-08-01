@@ -4,19 +4,9 @@
 stage_build_image_libs() {
     local resolved tag ver commit
 
-    resolved=$(resolve_pkg_version libtiff resolve_latest_git_tag \
-        "https://github.com/libsdl-org/libtiff.git" '^v[0-9]+\.[0-9]+(\.[0-9]+)?$' '' 'v') ||
-        fail "Failed to resolve the latest libtiff version."
-    IFS='|' read -r tag ver commit <<<"$resolved"
-    if build libtiff "$ver"; then
-        download "https://codeload.github.com/libsdl-org/libtiff/tar.gz/refs/tags/$tag" "libtiff-$ver.tar.gz"
-        execute autoreconf -fi
-        execute sh configure --prefix="$workspace" --enable-cxx --disable-docs --with-pic
-        execute make "-j$cpu_threads"
-        execute make install
-        build_done libtiff "$ver" "$commit"
-    fi
-
+    # libjpeg-turbo builds FIRST: libtiff's configure probes for jpeg, and
+    # with no system jpeg dev package installed the workspace static
+    # library is what provides it.
     # libjpeg-turbo's tag list carries x.y.9z development tags (2.1.90 was
     # the 3.0 beta) and inherited upstream-jpeg tags (jpeg-9e, jpeg-10),
     # so the grammar accepts plain x.y.z and excludes the .9x dev series.
@@ -35,6 +25,19 @@ stage_build_image_libs() {
         execute ninja "-j$cpu_threads"
         execute ninja install
         build_done libjpeg-turbo "$ver" "$commit"
+    fi
+
+    resolved=$(resolve_pkg_version libtiff resolve_latest_git_tag \
+        "https://github.com/libsdl-org/libtiff.git" '^v[0-9]+\.[0-9]+(\.[0-9]+)?$' '' 'v') ||
+        fail "Failed to resolve the latest libtiff version."
+    IFS='|' read -r tag ver commit <<<"$resolved"
+    if build libtiff "$ver"; then
+        download "https://codeload.github.com/libsdl-org/libtiff/tar.gz/refs/tags/$tag" "libtiff-$ver.tar.gz"
+        execute autoreconf -fi
+        execute sh configure --prefix="$workspace" --enable-cxx --disable-docs --with-pic
+        execute make "-j$cpu_threads"
+        execute make install
+        build_done libtiff "$ver" "$commit"
     fi
 
     # libfpx is an ImageMagick-maintained mirror whose tags do not track
