@@ -461,6 +461,244 @@ UNIT
     rm -rf -- "$sandbox"
 }
 
+# --- Phase 4: tag selection, marker reuse, pinned clones -------------------
+
+test_tag_selection_handles_libjpeg_turbo_grammar() {
+    local label="tag selection excludes libjpeg-turbo dev tags and jpeg-* tags"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        fixture=$(printf '%s\trefs/tags/%s\n' \
+            1111111111111111111111111111111111111111 3.1.1 \
+            2222222222222222222222222222222222222222 3.1.2 \
+            3333333333333333333333333333333333333333 3.1.90 \
+            4444444444444444444444444444444444444444 jpeg-9f \
+            5555555555555555555555555555555555555555 jpeg-10 \
+            6666666666666666666666666666666666666666 jpeg-ari)
+        result=$(printf '%s\n' "$fixture" |
+            select_latest_stable_tag '^[0-9]+\.[0-9]+\.[0-9]+$' '\.9[0-9]$') || exit 7
+        [[ "$result" == "3.1.2|3.1.2|2222222222222222222222222222222222222222" ]] || {
+            echo "got: $result" >&2
+            exit 8
+        }
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "selection returned nothing" ;;
+        8) tap_fail "$label" "wrong selection: $(<"$sandbox/unit-err.txt")" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_tag_selection_prefers_peeled_commit() {
+    local label="an annotated tag resolves to its peeled commit"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        fixture=$(printf '%s\trefs/tags/%s\n' \
+            aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa v1.0.0 \
+            bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 'v1.0.0^{}')
+        result=$(printf '%s\n' "$fixture" |
+            select_latest_stable_tag '^v[0-9]+\.[0-9]+\.[0-9]+$' '' 'v') || exit 7
+        [[ "$result" == "v1.0.0|1.0.0|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" ]] || {
+            echo "got: $result" >&2
+            exit 8
+        }
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        *) tap_fail "$label" "status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_tag_selection_excludes_prereleases() {
+    local label="rc/alpha/beta tags are excluded"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        fixture=$(printf '%s\trefs/tags/%s\n' \
+            cccccccccccccccccccccccccccccccccccccccc v1.6.50 \
+            dddddddddddddddddddddddddddddddddddddddd v1.6.51-rc01 \
+            eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee v1.7.0-beta2)
+        result=$(printf '%s\n' "$fixture" |
+            select_latest_stable_tag '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9]+)?$' '' 'v') || exit 7
+        [[ "$result" == v1.6.50\|1.6.50\|cccc* ]] || {
+            echo "got: $result" >&2
+            exit 8
+        }
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        *) tap_fail "$label" "status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_tag_selection_handles_ghostscript_and_freetype() {
+    local label="ghostscript 5-digit and freetype VER- grammars select correctly"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        gs_fixture=$(printf '%s\trefs/tags/%s\n' \
+            1111111111111111111111111111111111111111 gs9561 \
+            2222222222222222222222222222222222222222 gs10051 \
+            3333333333333333333333333333333333333333 gs10071 \
+            4444444444444444444444444444444444444444 gs100501)
+        result=$(printf '%s\n' "$gs_fixture" |
+            select_latest_stable_tag '^gs[0-9]{5}$') || exit 7
+        [[ "$result" == gs10071\|gs10071\|3333* ]] || {
+            echo "ghostscript got: $result" >&2
+            exit 8
+        }
+        ft_fixture=$(printf '%s\trefs/tags/%s\n' \
+            5555555555555555555555555555555555555555 VER-2-9-1 \
+            6666666666666666666666666666666666666666 VER-2-13-2 \
+            7777777777777777777777777777777777777777 VER-2-13-3)
+        result=$(printf '%s\n' "$ft_fixture" |
+            select_latest_stable_tag '^VER-[0-9]+(-[0-9]+)+$' '' 'VER-') || exit 9
+        [[ "$result" == "VER-2-13-3|2-13-3|7777777777777777777777777777777777777777" ]] || {
+            echo "freetype got: $result" >&2
+            exit 10
+        }
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        *) tap_fail "$label" "status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_tag_selection_fails_closed_on_empty_input() {
+    local label="tag selection fails closed on empty or tagless input"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        if printf '' | select_latest_stable_tag '^v'; then exit 7; fi
+        if printf '%s\trefs/heads/main\n' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa |
+            select_latest_stable_tag '^v'; then exit 8; fi
+        exit 0
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "empty input produced a selection" ;;
+        8) tap_fail "$label" "tagless input produced a selection" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_tag_selection_survives_large_input_under_pipefail() {
+    local label="tag selection is SIGPIPE-safe on a 300k-line listing under pipefail"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        python3 - >tags.txt <<'PY'
+for i in range(300000):
+    print("%040d\trefs/tags/v1.%d.%d" % (i, i // 1000, i % 1000))
+PY
+        selected=$(select_latest_stable_tag '^v[0-9]+\.[0-9]+\.[0-9]+$' '' 'v' <tags.txt) || exit 7
+        [[ "$selected" == v1.299.999\|1.299.999\|* ]] || {
+            echo "got: $selected" >&2
+            exit 8
+        }
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "selection failed (SIGPIPE under pipefail?)" ;;
+        8) tap_fail "$label" "wrong selection: $(<"$sandbox/unit-err.txt")" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_resolve_reuses_marker_without_network() {
+    local label="resolution reuses an intact marker with no resolver call"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$packages" "$workspace/bin"
+        printf '#!/bin/sh\n' > "$workspace/bin/m4"
+        chmod 755 "$workspace/bin/m4"
+        build_done m4 1.4.19
+        resolver_must_not_run() { echo "the resolver was called" >&2; exit 99; }
+        out=$(resolve_pkg_version m4 resolver_must_not_run) || exit 7
+        [[ "$out" == "|1.4.19|" ]] || { echo "got: $out" >&2; exit 8; }
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "marker reuse failed" ;;
+        8) tap_fail "$label" "wrong reuse output: $(<"$sandbox/unit-err.txt")" ;;
+        99) tap_fail "$label" "the resolver was called despite a valid marker" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_latest_flag_forces_resolution() {
+    local label="--latest forces re-resolution even with an intact marker"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$packages" "$workspace/bin"
+        printf '#!/bin/sh\n' > "$workspace/bin/m4"
+        chmod 755 "$workspace/bin/m4"
+        build_done m4 1.4.19
+        latest_flag=1
+        fake_resolver() { printf '|9.9.9|\n'; }
+        out=$(resolve_pkg_version m4 fake_resolver) || exit 7
+        [[ "$out" == "|9.9.9|" ]] || { echo "got: $out" >&2; exit 8; }
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        *) tap_fail "$label" "status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_git_clone_verifies_pinned_commit() {
+    local label="git_clone rejects a commit mismatch and accepts the pinned commit"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        # Local fixture repositories use the file transport, which the
+        # production HTTPS-only policy blocks; neutralize it for this test.
+        GIT_PROTOCOL_POLICY=()
+        mkdir -p "$packages"
+        git init -q fixture-repo
+        git -C fixture-repo -c user.email=t@t.invalid -c user.name=t \
+            commit -q --allow-empty -m one
+        git -C fixture-repo tag v1.0.0
+        good=$(git -C fixture-repo rev-parse HEAD)
+        if (git_clone "$PWD/fixture-repo" fixture v1.0.0 \
+            0000000000000000000000000000000000000000) >/dev/null 2>&1; then
+            exit 7
+        fi
+        [[ ! -e "$packages/fixture" ]] || exit 8
+        git_clone "$PWD/fixture-repo" fixture v1.0.0 "$good" >/dev/null 2>&1 || exit 9
+        [[ "$(git -C "$packages/fixture" rev-parse HEAD)" == "$good" ]] || exit 10
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "a wrong pinned commit was accepted" ;;
+        8) tap_fail "$label" "a rejected clone still published a checkout" ;;
+        9) tap_fail "$label" "a correct pinned clone failed: $(<"$sandbox/unit-err.txt")" ;;
+        10) tap_fail "$label" "the published checkout is not at the pinned commit" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
 # --- Phase 3: archive validation, transactional cache, markers -------------
 
 test_tar_validation_accepts_benign_archive() {
@@ -874,6 +1112,15 @@ test_marker_records_version_and_commit
 test_build_skips_when_marker_and_artifacts_match
 test_build_self_heals_marker_without_artifacts
 test_legacy_marker_triggers_rebuild
+test_tag_selection_handles_libjpeg_turbo_grammar
+test_tag_selection_prefers_peeled_commit
+test_tag_selection_excludes_prereleases
+test_tag_selection_handles_ghostscript_and_freetype
+test_tag_selection_fails_closed_on_empty_input
+test_tag_selection_survives_large_input_under_pipefail
+test_resolve_reuses_marker_without_network
+test_latest_flag_forces_resolution
+test_git_clone_verifies_pinned_commit
 
 printf '1..%d\n' "$test_count"
 if [[ "$fail_count" -gt 0 ]]; then
