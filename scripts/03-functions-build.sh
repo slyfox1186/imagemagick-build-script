@@ -56,7 +56,7 @@ package_artifacts_present() {
         opencl-sdk)  workspace_lib_exists libOpenCL ;;
         openjpeg)    workspace_pc_exists libopenjp2 ;;
         lcms2)       workspace_pc_exists lcms2 ;;
-        dejavu-fonts|source-code-pro|source-sans-pro|source-serif-pro|roboto|Fira)
+        source-code-pro|source-sans-pro|source-serif-pro|roboto|Fira)
             font_dir_populated "$name" ;;
         imagemagick) [[ -x /usr/local/bin/magick ]] ;;
         *) fail "No artifact contract is defined for package '$name'." ;;

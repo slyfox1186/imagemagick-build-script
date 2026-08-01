@@ -19,8 +19,12 @@ install_font_files() {
 }
 
 stage_install_fonts() {
+    # DejaVu is deliberately NOT in this list: its source repository ships
+    # no built .ttf/.otf at HEAD (verified), so cloning it never installed
+    # a usable font. The fonts-dejavu-core APT package provides
+    # /usr/share/fonts/truetype/dejavu - the exact directory ImageMagick's
+    # --with-dejavu-font-dir points at.
     local -a font_urls=(
-        "https://github.com/dejavu-fonts/dejavu-fonts.git"
         "https://github.com/adobe-fonts/source-code-pro.git"
         "https://github.com/adobe-fonts/source-sans-pro.git"
         "https://github.com/adobe-fonts/source-serif-pro.git"

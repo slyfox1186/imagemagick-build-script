@@ -8,7 +8,7 @@ apt_required_packages() {
     local -a pkgs=(
         autoconf autoconf-archive autopoint
         binutils bison build-essential bzip2 cmake curl
-        flex fontforge git gperf intltool jq libc6
+        flex fontforge fonts-dejavu-core git gperf intltool jq libc6
         libx11-dev libxext-dev libxt-dev
         libcpu-features-dev
         libfont-ttf-perl libgc-dev libgc1 libgegl-common
