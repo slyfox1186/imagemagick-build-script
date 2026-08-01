@@ -13,7 +13,7 @@ apt_required_packages() {
         libcpu-features-dev
         libfont-ttf-perl libgc-dev libgc1 libgegl-common
         libgl2ps-dev libglib2.0-dev libgraphviz-dev libgs-dev libheif-dev
-        libhwy-dev libjxl-dev librsvg2-dev librust-jpeg-decoder-dev
+        libhwy-dev librsvg2-dev librust-jpeg-decoder-dev
         librust-malloc-buf-dev libsharp-dev libticonv-dev
         libtool libtool-bin libyuv-dev libyuv-utils libyuv0
         lsb-release m4 meson nasm ninja-build
@@ -22,7 +22,7 @@ apt_required_packages() {
 
     case "$OS" in
         Debian)
-            pkgs+=(libjpeg62-turbo libjpeg62-turbo-dev)
+            pkgs+=(libjpeg62-turbo libjpeg62-turbo-dev libjxl-dev)
             case "$VER_MAJOR" in
                 12) pkgs+=(libgegl-0.4-0 libcamd2) ;;
                 13) pkgs+=(libgegl-0.4-0t64 libcamd3) ;;
@@ -32,7 +32,11 @@ apt_required_packages() {
         Ubuntu)
             pkgs+=(libjpeg62 libjpeg62-dev)
             case "$VER_MAJOR" in
-                22|24) ;;
+                # libjxl-dev is not packaged for 22.04 (verified via the
+                # container availability gate), so builds there simply lack
+                # the optional JPEG-XL delegate.
+                22) ;;
+                24) pkgs+=(libjxl-dev) ;;
                 *) fail "Unsupported Ubuntu version '$VER'. Supported: 22.04, 24.04." ;;
             esac
             ;;
