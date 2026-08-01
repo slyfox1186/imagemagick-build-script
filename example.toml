@@ -20,10 +20,11 @@
 # djvu/fftw/lqr/openexr/pango/raw/wmf/zip extras and the gs/ffmpeg runtime
 # delegates) are always installed.
 #
-# The groups below are for readability only; the scripts fix the build
-# order themselves. Some selections are impossible and fail up front: the
-# raqm text stack needs freetype, fribidi, and harfbuzz; fontconfig needs
-# freetype and libxml2; libtiff needs libjpeg-turbo.
+# The groups below are for readability, with package keys alphabetized
+# inside each group. They do not control build order; the scripts fix the
+# build order themselves. Some selections are impossible and fail up
+# front: the raqm text stack needs freetype, fribidi, and harfbuzz;
+# fontconfig needs freetype and libxml2; libtiff needs libjpeg-turbo.
 #
 # The active selection is recorded in the build context. Changing it
 # invalidates the completion markers and the workspace automatically on
@@ -37,39 +38,39 @@ latest = false
 [packages]
 
 # Build tools (disabling one falls back to the APT-installed version)
-m4 = true  # Macro processor used by Autotools
 libtool = true  # Portable library build and linking helper
+m4 = true  # Macro processor used by Autotools
 pkg-config = true  # Dependency resolver used by every configure probe
 
 # Image format libraries and their delegates
-libjpeg-turbo = true  # JPEG encoding/decoding (jpeg delegate; jng with libpng)
-libtiff = true  # TIFF encoding/decoding (tiff delegate; needs libjpeg-turbo)
-libfpx = true  # FlashPix format support (fpx delegate)
 ghostscript = true  # PostScript/PDF library (gslib delegate)
+libfpx = true  # FlashPix format support (fpx delegate)
+libjpeg-turbo = true  # JPEG encoding/decoding (jpeg delegate; jng with libpng)
 libpng = true  # PNG encoding/decoding (png delegate; jng with libjpeg-turbo)
+libtiff = true  # TIFF encoding/decoding (tiff delegate; needs libjpeg-turbo)
 libwebp = true  # WebP encoding/decoding (webp delegate)
 openjpeg = true  # JPEG 2000 encoding/decoding (jp2 delegate)
 
 # Text rendering stack
-freetype = true  # Font loading and rasterization (freetype delegate)
-libxml2 = true  # XML parsing (xml delegate; required by fontconfig)
 fontconfig = true  # Font discovery (fontconfig delegate; needs freetype+libxml2)
+freetype = true  # Font loading and rasterization (freetype delegate)
 fribidi = true  # Unicode bidirectional text (required by raqm)
 harfbuzz = true  # Complex text shaping (needs freetype; required by raqm)
-raqm = true  # Complex text layout (raqm delegate; needs the three above)
+libxml2 = true  # XML parsing (xml delegate; required by fontconfig)
+raqm = true  # Complex text layout (raqm delegate; needs freetype/fribidi/harfbuzz)
 
 # Color management, memory, and GPU support
-lcms2 = true  # ICC color management with Little CMS (lcms delegate)
 jemalloc = true  # General-purpose memory allocator (--with-jemalloc)
+lcms2 = true  # ICC color management with Little CMS (lcms delegate)
 opencl-sdk = true  # Khronos OpenCL headers and loader (--enable-opencl)
 
 # Font families installed to /usr/share/fonts/truetype (DejaVu comes from
 # the fonts-dejavu-core APT package and is not listed here)
+Fira = true  # Mozilla Fira
+roboto = true  # Google Roboto
 source-code-pro = true  # Adobe Source Code Pro
 source-sans-pro = true  # Adobe Source Sans
 source-serif-pro = true  # Adobe Source Serif
-roboto = true  # Google Roboto
-Fira = true  # Mozilla Fira
 
 # Final application
 imagemagick = true  # ImageMagick itself (disable to build only the dependencies)
