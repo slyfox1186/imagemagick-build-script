@@ -258,7 +258,7 @@ validate_tar_archive() {
             mode = $1
             type = substr(mode, 1, 1)
             if (type !~ /^[-dlh]$/) {
-                print "unsupported member type \x27" type "\x27: " $0
+                print "unsupported member type " type ": " $0
                 exit 1
             }
             if (substr(mode, 2) ~ /[sS]/) {
@@ -280,7 +280,7 @@ validate_tar_archive() {
                 name = substr(line, 1, idx - 1)
                 target = substr(line, idx + 9)
             }
-            if (name ~ /[\x01-\x1f\x7f]/) { print "control characters in a member name"; exit 1 }
+            if (name ~ /[[:cntrl:]]/) { print "control characters in a member name"; exit 1 }
             if (name ~ /^\//) { print "absolute member path: " name; exit 1 }
             if (name ~ /(^|\/)\.\.(\/|$)/) { print "path traversal in member name: " name; exit 1 }
             root = name

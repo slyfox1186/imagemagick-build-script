@@ -61,7 +61,7 @@ run_resolver fribidi resolve_latest_git_tag "https://github.com/fribidi/fribidi.
 run_resolver harfbuzz resolve_latest_git_tag "https://github.com/harfbuzz/harfbuzz.git" '^[0-9]+\.[0-9]+\.[0-9]+$'
 run_resolver raqm resolve_latest_git_tag "https://github.com/host-oman/libraqm.git" '^v[0-9]+\.[0-9]+\.[0-9]+$' '' 'v'
 run_resolver jemalloc resolve_latest_git_tag "https://github.com/jemalloc/jemalloc.git" '^[0-9]+\.[0-9]+\.[0-9]+$'
-run_resolver opencl-sdk resolve_latest_git_tag "https://github.com/KhronosGroup/OpenCL-SDK.git" '^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}$' '' 'v'
+run_resolver opencl-sdk resolve_latest_git_tag "https://github.com/KhronosGroup/OpenCL-SDK.git" '^v[0-9][0-9][0-9][0-9]\.[0-9][0-9]\.[0-9][0-9]$' '' 'v'
 run_resolver openjpeg resolve_latest_git_tag "https://github.com/uclouvain/openjpeg.git" '^v[0-9]+\.[0-9]+\.[0-9]+$' '' 'v'
 run_resolver lcms2 resolve_latest_git_tag "https://github.com/mm2/Little-CMS.git" '^lcms[0-9]+(\.[0-9]+)+$' '' 'lcms'
 run_resolver imagemagick resolve_latest_git_tag "https://github.com/ImageMagick/ImageMagick.git" '^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$'

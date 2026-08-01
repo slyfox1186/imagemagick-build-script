@@ -25,12 +25,14 @@ gnu_repo() {
 # Ghostscript releases live in the ghostpdl-downloads repository with tags
 # like gs10071 (= 10.07.1). The grammar is pinned to exactly five digits:
 # a future six-digit tag would sort wrongly against five-digit ones, so it
-# fails closed for a deliberate update instead.
+# fails closed for a deliberate update instead. Digit repetition is spelled
+# out because these grammars run under awk, and Ubuntu 22.04's mawk does
+# not support {n} interval expressions.
 resolve_ghostscript() {
     local trip tag commit fmt
     trip=$(resolve_latest_git_tag \
         "https://github.com/ArtifexSoftware/ghostpdl-downloads.git" \
-        '^gs[0-9]{5}$') || return 1
+        '^gs[0-9][0-9][0-9][0-9][0-9]$') || return 1
     IFS='|' read -r tag _ commit <<<"$trip"
     fmt=$(printf '%s\n' "$tag" | sed -E 's/^gs([0-9]{2})([0-9]{2})([0-9])$/\1.\2.\3/')
     [[ "$fmt" != "$tag" ]] || return 1
