@@ -6,7 +6,7 @@
 # tests/check-apt-availability.sh (the container availability gate).
 apt_required_packages() {
     local -a pkgs=(
-        autoconf autoconf-archive
+        autoconf autoconf-archive autopoint
         binutils bison build-essential bzip2 cmake curl
         flex fontforge git gperf intltool jq libc6
         libx11-dev libxext-dev libxt-dev
