@@ -2,12 +2,9 @@
 # shellcheck shell=bash
 
 stage_build_extra_libs() {
-    local resolved tag ver commit
+    local tag ver commit
 
-    resolved=$(resolve_pkg_version jemalloc resolve_latest_git_tag \
-        "https://github.com/jemalloc/jemalloc.git" '^[0-9]+\.[0-9]+\.[0-9]+$') ||
-        fail "Failed to resolve the latest jemalloc version."
-    IFS='|' read -r tag ver commit <<<"$resolved"
+    resolve_into jemalloc
     if build jemalloc "$ver"; then
         download "https://github.com/jemalloc/jemalloc/archive/refs/tags/$tag.tar.gz" "jemalloc-$ver.tar.gz"
         execute sh autogen.sh
@@ -27,13 +24,9 @@ stage_build_extra_libs() {
         build_done jemalloc "$ver" "$commit"
     fi
 
-    resolved=$(resolve_pkg_version opencl-sdk resolve_latest_git_tag \
-        "https://github.com/KhronosGroup/OpenCL-SDK.git" \
-        '^v[0-9][0-9][0-9][0-9]\.[0-9][0-9]\.[0-9][0-9]$' '' 'v') ||
-        fail "Failed to resolve the latest OpenCL-SDK version."
-    IFS='|' read -r tag ver commit <<<"$resolved"
+    resolve_into opencl-sdk
     if build opencl-sdk "$ver"; then
-        git_clone "https://github.com/KhronosGroup/OpenCL-SDK.git" opencl-sdk "$tag" "$commit" 1
+        git_clone "$(pkg_repo_url opencl-sdk)" opencl-sdk "$tag" "$commit" 1
         execute cmake \
                 -S . \
                 -B build \
@@ -56,10 +49,7 @@ stage_build_extra_libs() {
         build_done opencl-sdk "$ver" "$commit"
     fi
 
-    resolved=$(resolve_pkg_version openjpeg resolve_latest_git_tag \
-        "https://github.com/uclouvain/openjpeg.git" '^v[0-9]+\.[0-9]+\.[0-9]+$' '' 'v') ||
-        fail "Failed to resolve the latest openjpeg version."
-    IFS='|' read -r tag ver commit <<<"$resolved"
+    resolve_into openjpeg
     if build openjpeg "$ver"; then
         download "https://codeload.github.com/uclouvain/openjpeg/tar.gz/refs/tags/$tag" "openjpeg-$ver.tar.gz"
         execute cmake -B build \
@@ -75,10 +65,7 @@ stage_build_extra_libs() {
         build_done openjpeg "$ver" "$commit"
     fi
 
-    resolved=$(resolve_pkg_version lcms2 resolve_latest_git_tag \
-        "https://github.com/mm2/Little-CMS.git" '^lcms[0-9]+(\.[0-9]+)+$' '' 'lcms') ||
-        fail "Failed to resolve the latest lcms2 version."
-    IFS='|' read -r tag ver commit <<<"$resolved"
+    resolve_into lcms2
     if build lcms2 "$ver"; then
         download "https://github.com/mm2/Little-CMS/archive/refs/tags/$tag.tar.gz" "lcms2-$ver.tar.gz"
         execute sh autogen.sh

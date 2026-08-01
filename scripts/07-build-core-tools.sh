@@ -2,13 +2,11 @@
 # shellcheck shell=bash
 
 stage_build_core_tools() {
-    local resolved ver
+    local tag ver commit
     local pkg_config_cppflags pkg_config_ldflags
     local -a pkg_config_iconv_args
 
-    resolved=$(resolve_pkg_version m4 gnu_repo "$GNU_PRIMARY_MIRROR/m4/") ||
-        fail "Failed to resolve the latest m4 version."
-    IFS='|' read -r _ ver _ <<<"$resolved"
+    resolve_into m4
     if build m4 "$ver"; then
         download_with_fallback "$GNU_PRIMARY_MIRROR/m4/m4-$ver.tar.xz" \
             "$GNU_FALLBACK_MIRROR/m4/m4-$ver.tar.xz"
@@ -32,9 +30,7 @@ stage_build_core_tools() {
         build_done libtool "$ver"
     fi
 
-    resolved=$(resolve_pkg_version pkg-config gnu_repo "https://pkgconfig.freedesktop.org/releases/") ||
-        fail "Failed to resolve the latest pkg-config version."
-    IFS='|' read -r _ ver _ <<<"$resolved"
+    resolve_into pkg-config
     if build pkg-config "$ver"; then
         pkg_config_cppflags="$CPPFLAGS"
         pkg_config_ldflags="$LDFLAGS"

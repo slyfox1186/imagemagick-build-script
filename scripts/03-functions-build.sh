@@ -350,20 +350,23 @@ extract_archive_to_build_dir() {
     log "File extracted: $archive"
 }
 
-download() {
-    local url="$1" archive="${2:-${1##*/}}" target_dir
-    download_archive_to_cache "$archive" "$url"
-    target_dir="$packages/${archive%.tar*}"
+enter_extracted_archive() {
+    local archive="$1"
+    local target_dir="$packages/${archive%.tar*}"
     extract_archive_to_build_dir "$archive" "$target_dir"
     cd "$target_dir" || fail "Unable to change the working directory to \"$target_dir\"."
 }
 
+download() {
+    local url="$1" archive="${2:-${1##*/}}"
+    download_archive_to_cache "$archive" "$url"
+    enter_extracted_archive "$archive"
+}
+
 download_with_fallback() {
-    local primary_url="$1" fallback_url="$2" archive="${3:-${1##*/}}" target_dir
+    local primary_url="$1" fallback_url="$2" archive="${3:-${1##*/}}"
     download_archive_to_cache "$archive" "$primary_url" "$fallback_url"
-    target_dir="$packages/${archive%.tar*}"
-    extract_archive_to_build_dir "$archive" "$target_dir"
-    cd "$target_dir" || fail "Unable to change the working directory to \"$target_dir\"."
+    enter_extracted_archive "$archive"
 }
 
 # ---------------------------------------------------------------------------
@@ -469,7 +472,9 @@ resolve_pkg_version() {
 git_clone() {
     local repo_url="$1" repo_name="$2" ref="$3" expected_commit="$4" recurse="${5:-0}"
     local target_directory="$packages/$repo_name" tmpdir cloned_head stale=""
-    local -a clone_args=(--depth 1 -q)
+    # Checking out a tag detaches HEAD by design; git's multi-line advice
+    # about it is pure noise in a build log.
+    local -a clone_args=(-c advice.detachedHead=false --depth 1 -q)
     [[ "$recurse" -eq 1 ]] && clone_args+=(--recursive --shallow-submodules)
     [[ -n "$ref" ]] && clone_args+=(--branch "$ref")
 
