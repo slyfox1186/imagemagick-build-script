@@ -147,35 +147,31 @@ test_workers_valid_with_help_is_pure() {
     rm -rf -- "$sandbox"
 }
 
-# Run a snippet with scripts/01+02 sourced, inside a sandbox CWD, capturing
+# The environment shared by every sandboxed unit invocation: baseline
+# globals plus all project scripts and the test helpers, sourced in order.
+unit_preamble() {
+    printf '%s\n' \
+        'set -o pipefail' \
+        'debug=OFF' \
+        'cleanup_mode=prompt' \
+        'latest_flag=0'
+    local script
+    for script in "$repo_root"/scripts/[0-9]*.sh "$repo_root/tests/helpers.sh"; do
+        printf "source '%s'\n" "$script"
+    done
+}
+
+# Run a snippet with the unit preamble, inside a sandbox CWD, capturing
 # stdout/stderr/status. Unit tests for the core helpers use this driver; the
 # build root ($cwd) resolves inside the sandbox because 01 derives it from
-# $PWD, and nothing in 01/02 touches the filesystem at source time. The
-# snippet arrives on stdin (quoted heredoc at the call site), so variable
+# $PWD, and nothing touches the filesystem at source time. The snippet
+# arrives on stdin (quoted heredoc at the call site), so variable
 # references stay literal until the sandboxed bash evaluates them.
 run_unit_in_sandbox() {
     local sandbox="$1" body
     body=$(cat)
     (cd "$sandbox" && env SCRIPT_VERSION=0-test repo_root="$repo_root" \
-        timeout 20 bash -c "
-        set -o pipefail
-        debug=OFF
-        cleanup_mode=prompt
-        latest_flag=0
-        source '$repo_root/scripts/01-variables.sh'
-        source '$repo_root/scripts/02-functions-core.sh'
-        source '$repo_root/scripts/03-functions-build.sh'
-        source '$repo_root/scripts/04-functions-version.sh'
-        source '$repo_root/scripts/05-functions-system.sh'
-        source '$repo_root/scripts/06-setup-system.sh'
-        source '$repo_root/scripts/07-build-core-tools.sh'
-        source '$repo_root/scripts/08-build-image-libs.sh'
-        source '$repo_root/scripts/09-build-text-libs.sh'
-        source '$repo_root/scripts/10-build-extra-libs.sh'
-        source '$repo_root/scripts/11-build-fonts.sh'
-        source '$repo_root/scripts/12-build-imagemagick.sh'
-        source '$repo_root/scripts/13-finalize.sh'
-        source '$repo_root/tests/helpers.sh'
+        timeout 20 bash -c "$(unit_preamble)
         $body
     " >unit-out.txt 2>unit-err.txt </dev/null)
     printf '%s' "$?" >"$sandbox/status.txt"
@@ -827,13 +823,13 @@ UNIT
 test_no_autoremove_anywhere() {
     local label="no APT autoremove/purge exists; removals only via the legacy allowlist"
     local removals
-    if grep -rnE 'apt-get[^|]*(autoremove|purge)' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh >/dev/null 2>&1; then
-        tap_fail "$label" "$(grep -rnE 'apt-get[^|]*(autoremove|purge)' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh)"
+    if grep -rnE 'apt[-_]get[^|]*(autoremove|purge)' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh >/dev/null 2>&1; then
+        tap_fail "$label" "$(grep -rnE 'apt[-_]get[^|]*(autoremove|purge)' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh)"
         return
     fi
     # The single permitted removal is the legacy-conflict migration, which
     # must only ever operate on the fixed allowlist array.
-    removals=$(grep -rnE 'apt-get remove' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh)
+    removals=$(grep -rnE 'apt[-_]get remove' "$repo_root/build-magick.sh" "$repo_root/scripts/"*.sh)
     if [[ "$(printf '%s\n' "$removals" | grep -c .)" != "1" ]] ||
         ! printf '%s\n' "$removals" | grep -q 'legacy_conflicts'; then
         tap_fail "$label" "unexpected apt-get remove usage: $removals"
@@ -867,14 +863,8 @@ test_sigint_releases_lock_and_children() {
     local label="SIGINT exits 130, releases the lock, and leaves no children"
     local sandbox driver_pid inner_pid status tries=0
     sandbox=$(make_sandbox)
-    (cd "$sandbox" && env repo_root="$repo_root" SCRIPT_VERSION=0-test \
-        timeout 60 bash -s >driver-out.txt 2>driver-err.txt <<'DRIVER'
-        set -o pipefail
-        debug=OFF
-        cleanup_mode=prompt
-        latest_flag=0
-        source "$repo_root/scripts/01-variables.sh"
-        source "$repo_root/scripts/02-functions-core.sh"
+    local driver_body
+    driver_body=$(cat <<'BODY'
         sudo() { true; }
         install_traps
         start_sudo_keepalive
@@ -883,8 +873,11 @@ test_sigint_releases_lock_and_children() {
         printf "%s" "$$" > ready
         sleep 300 &
         wait $!
-DRIVER
-    ) &
+BODY
+    )
+    (cd "$sandbox" && env repo_root="$repo_root" SCRIPT_VERSION=0-test \
+        timeout 60 bash -c "$(unit_preamble)
+        $driver_body" >driver-out.txt 2>driver-err.txt </dev/null) &
     driver_pid=$!
     while [[ ! -s "$sandbox/ready" && "$tries" -lt 100 ]]; do
         sleep 0.1

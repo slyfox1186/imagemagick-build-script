@@ -49,6 +49,14 @@ apt_required_packages() {
     printf '%s\n' "${pkgs[@]}"
 }
 
+apt_package_installed() {
+    dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "ok installed"
+}
+
+apt_get() {
+    exec_root env DEBIAN_FRONTEND=noninteractive apt-get "$@"
+}
+
 apt_pkgs() {
     local pkg pkg_list
     local -a pkgs=()
@@ -62,9 +70,7 @@ apt_pkgs() {
 
     # Loop through the array to find missing packages
     for pkg in "${pkgs[@]}"; do
-        if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed"; then
-            missing_packages+=("$pkg")
-        fi
+        apt_package_installed "$pkg" || missing_packages+=("$pkg")
     done
 
     if [[ "${#missing_packages[@]}" -eq 0 ]]; then
@@ -76,7 +82,7 @@ apt_pkgs() {
     # actually installable BEFORE mutating anything: a missing package means
     # a silently degraded ImageMagick (failed configure probes), so this
     # fails closed instead of installing a partial set.
-    exec_root apt-get update || fail "apt-get update failed. Line: ${LINENO}"
+    apt_get update || fail "apt-get update failed. Line: ${LINENO}"
 
     for pkg in "${missing_packages[@]}"; do
         if ! apt-cache show "$pkg" >/dev/null 2>&1; then
@@ -98,14 +104,11 @@ apt_pkgs() {
     # removal.
     local -a legacy_conflicts=()
     for pkg in libjpeg62-dev libjpeg62-turbo-dev; do
-        if dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed"; then
-            legacy_conflicts+=("$pkg")
-        fi
+        apt_package_installed "$pkg" && legacy_conflicts+=("$pkg")
     done
     if [[ "${#legacy_conflicts[@]}" -gt 0 ]]; then
         warn "Removing legacy dev package(s) installed by older versions of this script: ${legacy_conflicts[*]}"
-        exec_root env DEBIAN_FRONTEND=noninteractive \
-            apt-get remove -y "${legacy_conflicts[@]}" ||
+        apt_get remove -y "${legacy_conflicts[@]}" ||
             fail "Failed to remove the legacy package(s): ${legacy_conflicts[*]}"
     fi
 
@@ -116,8 +119,7 @@ apt_pkgs() {
     # --no-remove: refuse any solver-proposed removal of existing packages.
     # No autoremove: removing "no longer needed" packages is unrelated,
     # destructive host mutation and is not this script's business.
-    exec_root env DEBIAN_FRONTEND=noninteractive \
-        apt-get install -y --no-remove "${missing_packages[@]}" ||
+    apt_get install -y --no-remove "${missing_packages[@]}" ||
         fail "apt-get install failed. Line: ${LINENO}"
     echo
 }
