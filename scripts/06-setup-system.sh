@@ -13,8 +13,7 @@ stage_setup_system() {
     # ONLY DEBIAN AND UBUNTU ARE SUPPORTED; ANYTHING ELSE FAILS BEFORE ANY
     # PACKAGES ARE INSTALLED OR BUILD WORK STARTS.
     case "$OS" in
-        Debian) debian_version ;;
-        Ubuntu) apt_pkgs ;;
+        Debian|Ubuntu) apt_pkgs ;;
         *) fail "Unsupported distribution '$OS'. Supported: Debian 12/13, Ubuntu 22.04/24.04." ;;
     esac
 
