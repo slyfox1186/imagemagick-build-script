@@ -91,8 +91,7 @@ validate_magick_installation() {
 }
 
 stage_build_imagemagick() {
-    local resolved tag ver commit staging rsvg_cflags rsvg_libs
-    local -a rsvg_env=()
+    local resolved tag ver commit staging
 
     echo
     box_out_banner "Build ImageMagick"
@@ -107,21 +106,6 @@ stage_build_imagemagick() {
         [[ -d build/ ]] && execute rm -fr build/
         mkdir build/
         cd build/ || fail "Cannot enter the ImageMagick build directory."
-        # librsvg is a SYSTEM library, and its Requires chain must resolve
-        # in the system pkg-config view: on Debian 13 it traverses
-        # harfbuzz-gobject, which pins the system harfbuzz version and
-        # conflicts with the workspace harfbuzz.pc shadow. Explicit
-        # RSVG_CFLAGS/RSVG_LIBS make configure's PKG_CHECK_MODULES skip
-        # that broken shadowed probe (the version floor is enforced here).
-        if rsvg_cflags=$(env -u PKG_CONFIG_LIBDIR -u PKG_CONFIG_PATH \
-            /usr/bin/pkg-config --cflags "librsvg-2.0 >= 2.9.0" 2>/dev/null) &&
-            rsvg_libs=$(env -u PKG_CONFIG_LIBDIR -u PKG_CONFIG_PATH \
-                /usr/bin/pkg-config --libs "librsvg-2.0 >= 2.9.0" 2>/dev/null); then
-            rsvg_env=("RSVG_CFLAGS=$rsvg_cflags" "RSVG_LIBS=$rsvg_libs")
-        else
-            warn "librsvg-2.0 is not resolvable via the system pkg-config; the rsvg delegate probe will run unaided."
-        fi
-
         # Dropped relative to the historical flag set, with evidence:
         # --with-pkgconfigdir: ineffective upstream (Makefile.am overrides
         #   pkgconfigdir to $(libdir)/pkgconfig; verified live - the .pc
@@ -153,8 +137,7 @@ stage_build_imagemagick() {
                                 CFLAGS="$CFLAGS -DCL_TARGET_OPENCL_VERSION=300" \
                                 CXXFLAGS="$CXXFLAGS -DCL_TARGET_OPENCL_VERSION=300" \
                                 CPPFLAGS="$CPPFLAGS -I$workspace/include/CL" \
-                                PKG_CONFIG="$workspace/bin/pkg-config" \
-                                "${rsvg_env[@]}"
+                                PKG_CONFIG="$workspace/bin/pkg-config"
         execute make "-j$cpu_threads"
 
         staging="$packages/imagemagick-staging"
