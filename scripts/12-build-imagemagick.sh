@@ -56,7 +56,8 @@ validate_magick_installation() {
     [[ -x "$magick_bin" ]] || fail "$magick_bin is missing or not executable."
     version_output=$("$magick_bin" -version) ||
         fail "Cannot execute $magick_bin -version."
-    printf '%s\n' "$version_output"
+    echo
+    printf '%s\n' "$version_output" | grep -E '^(Version|Features|Delegates)'
     grep -qF "ImageMagick $expected_version " <<<"$version_output" ||
         fail "The installed magick reports a different version than this build ($expected_version)."
 
@@ -75,9 +76,10 @@ validate_magick_installation() {
     [[ "$pc_version" == "${expected_version%-*}" ]] ||
         fail "MagickCore.pc reports '$pc_version', expected '${expected_version%-*}'."
 
-    echo
-    log "Active security policy (upstream default unless you installed one):"
-    "$magick_bin" identify -list policy || warn "Could not list the security policy."
+    local policy_path
+    policy_path=$("$magick_bin" identify -list policy 2>/dev/null |
+        awk -F': ' '/^Path:/ {print $2; exit}')
+    log "Security policy: ${policy_path:-unknown} (details: magick identify -list policy)"
 
     smoke_dir=$(mktemp -d "$cwd/.smoke.XXXXXX") || fail "Cannot create a smoke-test directory."
     "$magick_bin" logo: "$smoke_dir/logo.png" ||
@@ -88,6 +90,8 @@ validate_magick_installation() {
         fail "Functional smoke test produced empty output files."
     safe_remove_tree "$smoke_dir" "$cwd"
     log "Functional smoke test passed (logo: -> PNG -> WebP)."
+    # Lets the finalize stage skip its redundant version display.
+    MAGICK_VALIDATED=1
 }
 
 stage_build_imagemagick() {

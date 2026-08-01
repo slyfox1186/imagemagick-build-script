@@ -297,20 +297,11 @@ cleanup() {
 
     while true; do
         echo
-        echo "========================================================"
-        echo "       Would you like to clean up the build files?      "
-        echo "========================================================"
-        echo
-        echo "[1] Yes"
-        echo "[2] No"
-        echo
-
-        read -rp "Your choices are (1 or 2): " choice
-
+        read -rp "Clean up the build files in '$cwd'? [y/N] " choice
         case "${choice,,}" in
-            1|y|yes) remove_build_root; return ;;
-            2|n|no)  return ;;
-            *)       echo "Invalid choice. Please enter 1 or 2." ;;
+            y|yes|1)   remove_build_root; return ;;
+            n|no|2|"") return ;;
+            *)         echo "Please answer y or n." ;;
         esac
     done
 }
