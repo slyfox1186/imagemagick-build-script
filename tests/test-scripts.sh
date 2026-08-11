@@ -147,6 +147,73 @@ test_workers_valid_with_help_is_pure() {
     rm -rf -- "$sandbox"
 }
 
+test_gcc_version_rejects_invalid_values() {
+    local label="--gcc-version accepts only GCC major versions 9 through 14"
+    local sandbox status value ok=1
+    for value in "" 8 15 abc 12.1; do
+        sandbox=$(make_sandbox)
+        run_entry_in_sandbox "$sandbox" --gcc-version "$value"
+        status=$(<"$sandbox/status.txt")
+        if [[ "$status" == "0" ]]; then
+            tap_fail "$label" "value '$value' was accepted"
+            ok=0
+            rm -rf -- "$sandbox"
+            break
+        fi
+        rm -rf -- "$sandbox"
+    done
+    [[ "$ok" -eq 1 ]] && tap_ok "$label"
+}
+
+test_gcc_release_ranges_and_defaults() {
+    local label="each supported OS resolves its GCC range and highest default"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        while IFS='|' read -r os major release expected_range expected_default; do
+            OS="$os" VER_MAJOR="$major" VER="$release"
+            GNU_COMPILER_REQUESTED_VERSION=""
+            range=$(gnu_compiler_versions | paste -sd ' ')
+            [[ "$range" == "$expected_range" ]] || exit 7
+            [[ "$(resolve_gnu_compiler_version)" == "$expected_default" ]] || exit 8
+        done <<'CASES'
+Debian|12|12|11 12|12
+Debian|13|13|12 13 14|14
+Ubuntu|22|22.04|9 10 11 12|12
+Ubuntu|24|24.04|9 10 11 12 13 14|14
+CASES
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "a release range was wrong" ;;
+        8) tap_fail "$label" "a default was not the highest release version" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
+test_gcc_version_must_exist_on_release() {
+    local label="a globally valid GCC version unavailable on the OS fails clearly"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        OS=Debian VER_MAJOR=12 VER=12
+        GNU_COMPILER_REQUESTED_VERSION=14
+        resolve_gnu_compiler_version
+        exit 7
+UNIT
+    status=$(<"$sandbox/status.txt")
+    if [[ "$status" == "0" || "$status" == "7" ]]; then
+        tap_fail "$label" "GCC 14 was accepted on Debian 12"
+    elif ! grep -q "Available versions: 11 12" "$sandbox/unit-err.txt"; then
+        tap_fail "$label" "the error omitted the release range"
+    else
+        tap_ok "$label"
+    fi
+    rm -rf -- "$sandbox"
+}
+
 # The environment shared by every sandboxed unit invocation: baseline
 # globals plus all project scripts and the test helpers, sourced in order.
 unit_preamble() {
@@ -1480,6 +1547,9 @@ test_unknown_option_fails_cleanly
 test_workers_rejects_bad_values
 test_workers_missing_value_fails
 test_workers_valid_with_help_is_pure
+test_gcc_version_rejects_invalid_values
+test_gcc_release_ranges_and_defaults
+test_gcc_version_must_exist_on_release
 test_version_flag_is_pure
 test_cleanup_flags_are_mutually_exclusive
 test_workers_rejects_empty_value

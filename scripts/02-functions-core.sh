@@ -290,7 +290,7 @@ init_build_log() {
 }
 
 # Completion markers are only valid for the configuration that produced them:
-# -march=native and the highest-installed-GCC selection mean a CPU, compiler,
+# -march=native and the selected GCC version mean a CPU, compiler,
 # flag, or OS change silently changes every artifact. Any context change
 # invalidates all completion markers so the next run rebuilds consistently.
 compute_build_context() {

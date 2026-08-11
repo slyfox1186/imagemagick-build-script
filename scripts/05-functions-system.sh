@@ -5,6 +5,7 @@
 # line on stdout. Shared by the installer below and by
 # tests/check-apt-availability.sh (the container availability gate).
 apt_required_packages() {
+    local compiler_version="${1:-}"
     # Delegate-enabling packages, all verified available on every
     # supported release via the availability gate:
     # - libdjvulibre/fftw3/lqr/openexr/pango/raw/wmf/zip dev packages
@@ -63,7 +64,46 @@ apt_required_packages() {
         *) fail "Unsupported distribution '$OS'." ;;
     esac
 
+    if [[ -n "$compiler_version" ]]; then
+        pkgs+=("gcc-$compiler_version" "g++-$compiler_version")
+    fi
+
     printf '%s\n' "${pkgs[@]}"
+}
+
+# Compiler pairs present in the standard archives of each supported release.
+# The availability matrix is exercised by tests/check-apt-availability.sh.
+gnu_compiler_versions() {
+    case "$OS:$VER_MAJOR" in
+        Debian:12) printf '%s\n' 11 12 ;;
+        Debian:13) printf '%s\n' 12 13 14 ;;
+        Ubuntu:22) printf '%s\n' 9 10 11 12 ;;
+        Ubuntu:24) printf '%s\n' 9 10 11 12 13 14 ;;
+        *) fail "No GNU compiler range is defined for $OS $VER." ;;
+    esac
+}
+
+resolve_gnu_compiler_version() {
+    local requested="${GNU_COMPILER_REQUESTED_VERSION:-}" version selected="" version_list
+    local -a available=()
+    version_list=$(gnu_compiler_versions) || return 1
+    mapfile -t available <<<"$version_list"
+    ((${#available[@]} > 0)) || fail "No GNU compiler versions are available for $OS $VER."
+    for version in "${available[@]}"; do
+        (( version >= GNU_COMPILER_MIN_VERSION && version <= GNU_COMPILER_MAX_VERSION )) ||
+            fail "Internal error: GCC $version is outside the project range $GNU_COMPILER_MIN_VERSION-$GNU_COMPILER_MAX_VERSION."
+    done
+
+    if [[ -n "$requested" ]]; then
+        for version in "${available[@]}"; do
+            [[ "$version" == "$requested" ]] && selected="$requested"
+        done
+        [[ -n "$selected" ]] ||
+            fail "GCC $requested is unavailable on $OS $VER. Available versions: ${available[*]}."
+    else
+        selected="${available[${#available[@]} - 1]}"
+    fi
+    printf '%s\n' "$selected"
 }
 
 apt_package_installed() {
@@ -83,7 +123,10 @@ apt_pkgs() {
     local -a pkgs=()
     local -a missing_packages=() unavailable_packages=()
 
-    pkg_list=$(apt_required_packages) ||
+    GNU_COMPILER_VERSION=$(resolve_gnu_compiler_version) ||
+        fail "Could not select a GNU compiler for $OS $VER."
+    export GNU_COMPILER_VERSION
+    pkg_list=$(apt_required_packages "$GNU_COMPILER_VERSION") ||
         fail "Could not determine the required APT package list for $OS $VER."
     mapfile -t pkgs <<<"$pkg_list"
 
@@ -96,6 +139,8 @@ apt_pkgs() {
 
     if [[ "${#missing_packages[@]}" -eq 0 ]]; then
         log "All required APT packages are already installed."
+        activate_gnu_compiler_pair "$GNU_COMPILER_VERSION"
+        log "Using GNU compiler toolchain version $GNU_COMPILER_VERSION: $CC and $CXX."
         return 0
     fi
 
@@ -142,6 +187,8 @@ apt_pkgs() {
     # destructive host mutation and is not this script's business.
     apt_cmd install -y --no-remove "${missing_packages[@]}" ||
         fail "apt install failed. Line: ${LINENO}"
+    activate_gnu_compiler_pair "$GNU_COMPILER_VERSION"
+    log "Using GNU compiler toolchain version $GNU_COMPILER_VERSION: $CC and $CXX."
     echo
 }
 

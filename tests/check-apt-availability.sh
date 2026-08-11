@@ -21,6 +21,10 @@ get_os_version
 VER_MAJOR="${VER%%.*}"
 
 pkg_list=$(apt_required_packages) || exit 1
+mapfile -t compiler_versions < <(gnu_compiler_versions)
+for compiler_version in "${compiler_versions[@]}"; do
+    pkg_list+=$'\n'"gcc-$compiler_version"$'\n'"g++-$compiler_version"
+done
 
 unavailable=()
 count=0

@@ -45,6 +45,7 @@ bash build-magick.sh
 | Option | Meaning |
 |---|---|
 | `-w, --workers N` | Parallel job count for make/ninja. Default: detected CPU threads. |
+| `-g, --gcc-version N` | GNU compiler major version. Default: highest available for the detected OS release. |
 | `-l, --latest` | Re-resolve the latest upstream versions instead of reusing the versions recorded by a previous run. |
 | `-d, --debug` | Stream build output to the terminal as well as the log. |
 | `--config <path>` | Load build/package choices from a TOML file (see below). |
@@ -55,6 +56,24 @@ bash build-magick.sh
 
 `--help` and `--version` are side-effect free: they create nothing, touch
 nothing, and never prompt for sudo.
+
+### GCC versions
+
+The project supports GCC 9 through 14 where the matching `gcc-N` and `g++-N`
+packages are available in the distribution's standard archive. The script
+installs and uses the exact pair selected with `--gcc-version`; without that
+option it selects the highest version available for the detected release.
+
+| OS release | Selectable versions | Default |
+|---|---|---|
+| Debian 12 | 11-12 | 12 |
+| Debian 13 | 12-14 | 14 |
+| Ubuntu 22.04 | 9-12 | 12 |
+| Ubuntu 24.04 | 9-14 | 14 |
+
+For example, `bash build-magick.sh --gcc-version 11` selects `gcc-11` and
+`g++-11`. A version outside the release's range fails before package
+installation.
 
 ## Package selection (`--config`)
 
@@ -96,7 +115,7 @@ you run from):
   clean rebuild once.
 - A build-context record (compiler, flags, CPU model, OS) invalidates all
   markers when any of them change, because `-march=native` and the
-  highest-installed-GCC selection make every artifact context-dependent.
+  selected GCC version make every artifact context-dependent.
 - Git checkouts are pinned: the resolved tag's commit is recorded at
   resolution time and the clone is verified against it, so a moved tag
   fails instead of silently building different content.
