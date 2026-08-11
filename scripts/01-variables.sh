@@ -37,42 +37,63 @@ box_out_banner() {
     tput sgr0 2>/dev/null || true
 }
 
-# SET THE COMPILERS TO USE AND THE COMPILER OPTIMIZATION FLAGS
-select_gnu_compiler_pair() {
-    local candidate candidate_version best_version=""
+readonly GNU_COMPILER_MIN_VERSION=9
+readonly GNU_COMPILER_MAX_VERSION=14
 
-    shopt -s nullglob
-    for candidate in /usr/bin/gcc-[1-9]*; do
-        [[ -x "$candidate" ]] || continue
-        candidate_version="${candidate##*/gcc-}"
-        [[ "$candidate_version" =~ ^[0-9]+$ ]] || continue
-        (( candidate_version >= 11 )) || continue
-        [[ -x "/usr/bin/g++-$candidate_version" ]] || continue
+# The exact version is resolved from the detected OS release and installed in
+# stage_setup_system. Until then, use the requested name (if any) or the
+# unversioned bootstrap compiler solely for multiarch discovery.
+GNU_COMPILER_VERSION="${GNU_COMPILER_REQUESTED_VERSION:-}"
+if [[ -n "$GNU_COMPILER_VERSION" ]]; then
+    CC="gcc-$GNU_COMPILER_VERSION"
+    CXX="g++-$GNU_COMPILER_VERSION"
+else
+    CC=gcc
+    CXX=g++
+fi
 
-        if [[ -z "$best_version" || "$candidate_version" -gt "$best_version" ]]; then
-            best_version="$candidate_version"
-        fi
-    done
-    shopt -u nullglob
+set_multiarch_paths() {
+    MULTIARCH_TUPLE="$("$CC" -print-multiarch 2>/dev/null || true)"
+    [[ -z "$MULTIARCH_TUPLE" ]] && MULTIARCH_TUPLE="$(uname -m)-linux-gnu"
 
-    if [[ -n "$best_version" ]]; then
-        CC="gcc-$best_version"
-        CXX="g++-$best_version"
-        GNU_COMPILER_VERSION="$best_version"
-    else
-        CC="gcc"
-        CXX="g++"
-        GNU_COMPILER_VERSION=""
-    fi
+    WORKSPACE_PKG_CONFIG_DIRS="\
+$workspace/lib64/pkgconfig:\
+$workspace/lib/$MULTIARCH_TUPLE/pkgconfig:\
+$workspace/lib/pkgconfig:\
+$workspace/share/pkgconfig\
+"
+    SYSTEM_PKG_CONFIG_DIRS="\
+/usr/lib/$MULTIARCH_TUPLE/pkgconfig:\
+/usr/share/pkgconfig:\
+/usr/lib/pkgconfig:\
+/lib/$MULTIARCH_TUPLE/pkgconfig:\
+/lib/pkgconfig\
+"
+    PKG_CONFIG_PATH="$WORKSPACE_PKG_CONFIG_DIRS"
+    PKG_CONFIG_LIBDIR="$WORKSPACE_PKG_CONFIG_DIRS:$SYSTEM_PKG_CONFIG_DIRS"
+    export MULTIARCH_TUPLE WORKSPACE_PKG_CONFIG_DIRS SYSTEM_PKG_CONFIG_DIRS
+    export PKG_CONFIG_PATH PKG_CONFIG_LIBDIR
 }
 
-select_gnu_compiler_pair
+activate_gnu_compiler_pair() {
+    local version="$1" cc_major cxx_major
+    CC="gcc-$version"
+    CXX="g++-$version"
+    command -v "$CC" >/dev/null 2>&1 || fail "The selected compiler '$CC' is not executable."
+    command -v "$CXX" >/dev/null 2>&1 || fail "The selected compiler '$CXX' is not executable."
+    cc_major=$("$CC" -dumpversion) || fail "Cannot query $CC."
+    cxx_major=$("$CXX" -dumpversion) || fail "Cannot query $CXX."
+    [[ "${cc_major%%.*}" == "$version" && "${cxx_major%%.*}" == "$version" ]] ||
+        fail "The selected compiler pair does not report GCC major version $version."
+    GNU_COMPILER_VERSION="$version"
+    set_multiarch_paths
+    export CC CXX GNU_COMPILER_VERSION
+}
 
 # Multiarch tuple for system library paths, derived from the compiler rather
 # than hard-coded, with a static fallback for bootstrap runs where the
 # compiler is not installed yet (the APT stage installs it before any build).
-MULTIARCH_TUPLE="$("$CC" -print-multiarch 2>/dev/null || true)"
-[[ -z "$MULTIARCH_TUPLE" ]] && MULTIARCH_TUPLE="$(uname -m)-linux-gnu"
+set_multiarch_paths
 
 CFLAGS="-O3 -fPIC -pipe -march=native -fstack-protector-strong"
 CXXFLAGS="$CFLAGS"
@@ -96,22 +117,3 @@ fi
 # Prefer the workspace and standard system toolchain over inherited user shims.
 PATH="/usr/lib/ccache:$workspace/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 export PATH
-
-# Keep pkg-config discovery deterministic: prefer the workspace, allow
-# explicit system package directories, and ignore /usr/local overrides.
-WORKSPACE_PKG_CONFIG_DIRS="\
-$workspace/lib64/pkgconfig:\
-$workspace/lib/$MULTIARCH_TUPLE/pkgconfig:\
-$workspace/lib/pkgconfig:\
-$workspace/share/pkgconfig\
-"
-SYSTEM_PKG_CONFIG_DIRS="\
-/usr/lib/$MULTIARCH_TUPLE/pkgconfig:\
-/usr/share/pkgconfig:\
-/usr/lib/pkgconfig:\
-/lib/$MULTIARCH_TUPLE/pkgconfig:\
-/lib/pkgconfig\
-"
-PKG_CONFIG_PATH="$WORKSPACE_PKG_CONFIG_DIRS"
-PKG_CONFIG_LIBDIR="$WORKSPACE_PKG_CONFIG_DIRS:$SYSTEM_PKG_CONFIG_DIRS"
-export WORKSPACE_PKG_CONFIG_DIRS SYSTEM_PKG_CONFIG_DIRS PKG_CONFIG_PATH PKG_CONFIG_LIBDIR MULTIARCH_TUPLE

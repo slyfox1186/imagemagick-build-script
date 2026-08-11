@@ -22,6 +22,9 @@ Build ImageMagick and its dependencies from source.
 Options:
   -w, --workers N    Parallel job count for make/ninja (positive integer).
                      Default: detected CPU thread count.
+  -g, --gcc-version N
+                     GNU compiler major version (9 through 14).
+                     Default: highest available for the detected OS release.
   -l, --latest       Re-resolve the latest upstream versions instead of
                      reusing the versions recorded by a previous run.
   -d, --debug        Stream build output to the terminal as well as the log.
@@ -36,13 +39,14 @@ Options:
 Examples:
   build-magick.sh
   build-magick.sh --workers 24 --latest
+  build-magick.sh --gcc-version 12
   build-magick.sh --config ./custom.toml
   build-magick.sh --no-cleanup
 EOF
 }
 
 parse_args() {
-    local workers_arg="" workers_set=0
+    local workers_arg="" workers_set=0 gcc_version_arg="" gcc_version_set=0
     latest_flag=0
     latest_cli=0
     debug=OFF
@@ -64,6 +68,21 @@ parse_args() {
             --workers=*)
                 workers_arg="${1#*=}"
                 workers_set=1
+                shift
+                ;;
+            -g|--gcc-version)
+                [[ $# -lt 2 ]] && {
+                    echo "Error: $1 requires a compiler major version." >&2
+                    print_usage >&2
+                    exit 1
+                }
+                gcc_version_arg="$2"
+                gcc_version_set=1
+                shift 2
+                ;;
+            --gcc-version=*)
+                gcc_version_arg="${1#*=}"
+                gcc_version_set=1
                 shift
                 ;;
             -l|--latest)
@@ -138,6 +157,17 @@ parse_args() {
         fi
         BUILD_MAGICK_WORKERS="$workers_arg"
     fi
+
+    if [[ "$gcc_version_set" -eq 1 ]]; then
+        if [[ ! "$gcc_version_arg" =~ ^[0-9]+$ ]] ||
+            (( gcc_version_arg < 9 || gcc_version_arg > 14 )); then
+            echo "Error: --gcc-version/-g must be an integer from 9 through 14 (got '$gcc_version_arg')." >&2
+            exit 1
+        fi
+        GNU_COMPILER_REQUESTED_VERSION="$gcc_version_arg"
+    else
+        GNU_COMPILER_REQUESTED_VERSION=""
+    fi
 }
 
 # Building as root would leave root-owned files in the build tree and run
@@ -207,10 +237,6 @@ box_out_banner "ImageMagick Build Script v$SCRIPT_VERSION"
 if [[ -n "$config_file" ]]; then
     load_package_selection_config "$config_file"
     validate_package_selection
-fi
-
-if [[ -n "${GNU_COMPILER_VERSION:-}" ]]; then
-    log "Using GNU compiler toolchain version $GNU_COMPILER_VERSION: $CC and $CXX."
 fi
 
 if [[ -n "${BUILD_MAGICK_WORKERS:-}" ]]; then
