@@ -40,8 +40,11 @@ stage_build_text_libs() {
     resolve_into freetype
     ver="${ver//-/.}"
     if build freetype "$ver"; then
-        download "https://gitlab.freedesktop.org/freetype/freetype/-/archive/$tag/freetype-$tag.tar.bz2" \
-            "freetype-$ver.tar.bz2"
+        # GitLab's generated-archive endpoint can return its Anubis HTML
+        # challenge with HTTP 200. The smart-HTTP Git endpoint remains
+        # non-interactive, and git_clone also verifies the resolved commit.
+        # FreeType's autogen.sh copies sources from its pinned dlg submodule.
+        git_clone "$(pkg_repo_url freetype)" freetype "$tag" "$commit" 1
         extracmds=("-D"{harfbuzz,png,bzip2,brotli,zlib,tests}"=disabled")
         execute sh autogen.sh
         execute meson setup build --prefix="$workspace" \
@@ -95,7 +98,9 @@ stage_build_text_libs() {
 
     resolve_into fontconfig
     if build fontconfig "$ver"; then
-        download "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/$tag/fontconfig-$tag.tar.bz2"
+        # Use the same commit-pinned Git path as FreeType: this generated-
+        # archive endpoint is protected by the same browser-only challenge.
+        git_clone "$(pkg_repo_url fontconfig)" fontconfig "$tag" "$commit"
 
         # Explicitly add paths for zlib and lzma, and link them
         fontconfig_ldflags="$LDFLAGS -DLIBXML_STATIC -L/usr/lib/$MULTIARCH_TUPLE -lz -llzma"
