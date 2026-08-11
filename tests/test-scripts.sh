@@ -778,6 +778,64 @@ UNIT
     rm -rf -- "$sandbox"
 }
 
+test_freedesktop_sources_use_pinned_git_checkouts() {
+    local label="FreeType and fontconfig avoid browser-gated archive endpoints"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        calls="$PWD/clone-calls"
+        resolve_into() {
+            case "$1" in
+                freetype)
+                    tag=VER-2-14-3
+                    ver=2-14-3
+                    commit=1111111111111111111111111111111111111111
+                    ;;
+                fontconfig)
+                    tag=2.18.3
+                    ver=2.18.3
+                    commit=2222222222222222222222222222222222222222
+                    ;;
+                *)
+                    tag=test
+                    ver=test
+                    commit=3333333333333333333333333333333333333333
+                    ;;
+            esac
+        }
+        build() { [[ "$1" == freetype || "$1" == fontconfig ]]; }
+        git_clone() {
+            printf '%s|%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" "${5:-}" >>"$calls"
+            mkdir -p "$packages/$2"
+            cd "$packages/$2" || exit 90
+            [[ "$2" == fontconfig ]] && printf 'Cflags:\n' >fontconfig.pc.in
+        }
+        download() { exit 99; }
+        execute() { :; }
+        build_done() { :; }
+
+        stage_build_text_libs
+
+        expected=$(cat <<'EXPECTED'
+https://gitlab.freedesktop.org/freetype/freetype.git|freetype|VER-2-14-3|1111111111111111111111111111111111111111|1
+https://gitlab.freedesktop.org/fontconfig/fontconfig.git|fontconfig|2.18.3|2222222222222222222222222222222222222222|
+EXPECTED
+        )
+        [[ "$(<"$calls")" == "$expected" ]] || {
+            printf 'unexpected source calls:\n%s\n' "$(<"$calls")" >&2
+            exit 7
+        }
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "the stages did not use the expected pinned clones: $(<"$sandbox/unit-err.txt")" ;;
+        99) tap_fail "$label" "a browser-gated generated archive endpoint was still used" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
 # --- Phase 6: installation validation ---------------------------------------
 
 test_magick_validation_accepts_good_install() {
@@ -1586,6 +1644,7 @@ test_tag_selection_survives_large_input_under_pipefail
 test_resolve_reuses_marker_without_network
 test_latest_flag_forces_resolution
 test_git_clone_verifies_pinned_commit
+test_freedesktop_sources_use_pinned_git_checkouts
 test_apt_fails_closed_on_unavailable_required_package
 test_no_autoremove_anywhere
 test_unsupported_distro_fails_before_mutation
