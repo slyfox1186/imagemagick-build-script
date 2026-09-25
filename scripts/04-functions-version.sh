@@ -12,14 +12,20 @@
 # GNU-style release-directory listing (m4, pkg-config): highest plain
 # numeric "<name>-X.Y[.Z].tar.*" version. Rolling aliases like
 # "m4-latest.tar.xz" never match, so markers always record a real version.
+# Arguments: listing_url [fallback_listing_url...], tried in order.
 gnu_repo() {
-    local listing ver
-    listing=$(curl_listing "$1") || return 1
-    ver=$(printf '%s\n' "$listing" |
-        grep -oP '[a-zA-Z0-9_-]+-\K[0-9]+(\.[0-9]+)+(?=\.tar)' |
-        sort -uV | tail -n 1)
-    [[ -n "$ver" ]] || return 1
-    printf '|%s|\n' "$ver"
+    local url listing ver
+    for url in "$@"; do
+        listing=$(curl_listing "$url") || continue
+        ver=$(printf '%s\n' "$listing" |
+            grep -oP '[a-zA-Z0-9_-]+-\K[0-9]+(\.[0-9]+)+(?=\.tar)' |
+            sort -uV | tail -n 1)
+        if [[ -n "$ver" ]]; then
+            printf '|%s|\n' "$ver"
+            return 0
+        fi
+    done
+    return 1
 }
 
 # Ghostscript releases live in the ghostpdl-downloads repository with tags
@@ -74,7 +80,8 @@ resolve_pkg() {
     url=$(pkg_repo_url "$name") || url=""
     case "$name" in
         m4)
-            resolve_pkg_version "$name" gnu_repo "$GNU_PRIMARY_MIRROR/m4/" ;;
+            resolve_pkg_version "$name" gnu_repo "$GNU_PRIMARY_MIRROR/m4/" \
+                "$GNU_FALLBACK_MIRROR/m4/" ;;
         pkg-config)
             resolve_pkg_version "$name" gnu_repo "https://pkgconfig.freedesktop.org/releases/" ;;
         ghostscript)

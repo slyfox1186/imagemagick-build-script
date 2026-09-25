@@ -59,8 +59,10 @@ stage_build_text_libs() {
 
     resolve_into libxml2
     if build libxml2 "$ver"; then
-        download "https://gitlab.gnome.org/GNOME/libxml2/-/archive/$tag/libxml2-$tag.tar.bz2" \
-            "libxml2-$ver.tar.bz2"
+        # gitlab.gnome.org's CDN answers generated-archive requests from a
+        # browser UA with an empty HTTP 406 on every cache miss; its Git
+        # endpoint is not gated, and git_clone verifies the resolved commit.
+        git_clone "$(pkg_repo_url libxml2)" libxml2 "$tag" "$commit"
         # This is a pure CMake build: the old code additionally ran the
         # Autotools autogen.sh bootstrap (pointless before cmake) and probed
         # python3.11/3.12-config - a hard failure on Ubuntu 22.04, which

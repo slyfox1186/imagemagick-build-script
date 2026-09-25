@@ -778,8 +778,8 @@ UNIT
     rm -rf -- "$sandbox"
 }
 
-test_freedesktop_sources_use_pinned_git_checkouts() {
-    local label="FreeType and fontconfig avoid browser-gated archive endpoints"
+test_gitlab_sources_use_pinned_git_checkouts() {
+    local label="FreeType, libxml2 and fontconfig avoid browser-gated archive endpoints"
     local sandbox status
     sandbox=$(make_sandbox)
     run_unit_in_sandbox "$sandbox" <<'UNIT'
@@ -790,6 +790,11 @@ test_freedesktop_sources_use_pinned_git_checkouts() {
                     tag=VER-2-14-3
                     ver=2-14-3
                     commit=1111111111111111111111111111111111111111
+                    ;;
+                libxml2)
+                    tag=v2.15.4
+                    ver=2.15.4
+                    commit=4444444444444444444444444444444444444444
                     ;;
                 fontconfig)
                     tag=2.18.3
@@ -803,7 +808,7 @@ test_freedesktop_sources_use_pinned_git_checkouts() {
                     ;;
             esac
         }
-        build() { [[ "$1" == freetype || "$1" == fontconfig ]]; }
+        build() { [[ "$1" == freetype || "$1" == libxml2 || "$1" == fontconfig ]]; }
         git_clone() {
             printf '%s|%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" "${5:-}" >>"$calls"
             mkdir -p "$packages/$2"
@@ -818,6 +823,7 @@ test_freedesktop_sources_use_pinned_git_checkouts() {
 
         expected=$(cat <<'EXPECTED'
 https://gitlab.freedesktop.org/freetype/freetype.git|freetype|VER-2-14-3|1111111111111111111111111111111111111111|1
+https://gitlab.gnome.org/GNOME/libxml2.git|libxml2|v2.15.4|4444444444444444444444444444444444444444|
 https://gitlab.freedesktop.org/fontconfig/fontconfig.git|fontconfig|2.18.3|2222222222222222222222222222222222222222|
 EXPECTED
         )
@@ -1644,7 +1650,7 @@ test_tag_selection_survives_large_input_under_pipefail
 test_resolve_reuses_marker_without_network
 test_latest_flag_forces_resolution
 test_git_clone_verifies_pinned_commit
-test_freedesktop_sources_use_pinned_git_checkouts
+test_gitlab_sources_use_pinned_git_checkouts
 test_apt_fails_closed_on_unavailable_required_package
 test_no_autoremove_anywhere
 test_unsupported_distro_fails_before_mutation

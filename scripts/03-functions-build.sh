@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 
-CURL_USER_AGENT='Mozilla/5.0 (X11; Linux x86_64; rv:153.0) Gecko/20100101 Firefox/153.0'
+# GitLab forges bot-gate generated archives (/-/archive/) for a browser UA
+# that is plainly not a browser: gitlab.gnome.org's CDN answers every cache
+# miss with an empty HTTP 406, and gitlab.freedesktop.org serves its Anubis
+# HTML challenge with HTTP 200. Sources hosted there must use git_clone.
+CURL_USER_AGENT='Mozilla/5.0 (X11; Linux x86_64; rv:156.0) Gecko/20100101 Firefox/156.0'
 
 # ---------------------------------------------------------------------------
 # Completion markers and artifact contracts
