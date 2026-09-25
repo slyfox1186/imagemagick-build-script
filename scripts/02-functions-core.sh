@@ -409,7 +409,16 @@ stop_sudo_keepalive() {
 # In debug mode the output additionally streams to the terminal; PIPESTATUS
 # is captured immediately so tee can never mask the command's status.
 execute() {
-    echo "\$ $*"
+    execute_as "$*" "$@"
+}
+
+# execute, but the terminal and failure message show LABEL instead of the
+# argv, for commands whose arguments are long file lists. The build log
+# still records the complete command. Arguments: label command [args...].
+execute_as() {
+    local label="$1"
+    shift
+    echo "\$ $label"
     printf '$ %s\n' "$*" >>"$BUILD_LOG"
     local exit_status
     if [[ "$debug" == "ON" ]]; then
@@ -422,7 +431,7 @@ execute() {
     if [[ "$exit_status" -ne 0 ]]; then
         echo >&2
         tail -n 40 -- "$BUILD_LOG" >&2
-        fail "Failed to execute: $* (exit $exit_status). Full log: $BUILD_LOG"
+        fail "Failed to execute: $label (exit $exit_status). Full log: $BUILD_LOG"
     fi
 }
 

@@ -57,7 +57,7 @@ ensure_container() {
     # the builder home (markers, caches) is deliberately preserved.
     docker exec "$name" rm -rf /home/builder/repo
     docker cp -q "$repo_root" "$name:/home/builder/repo"
-    docker exec "$name" bash -c 'rm -rf /home/builder/repo/magick-build-script; chown -R builder:builder /home/builder/repo'
+    docker exec "$name" bash -c 'rm -rf /home/builder/repo/build; chown -R builder:builder /home/builder/repo'
 }
 
 run_level() {
