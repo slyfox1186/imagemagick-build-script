@@ -23,7 +23,8 @@ stage_build_core_tools() {
         *) fail "Unsupported OS version for libtool: $OS $VER. Line: ${LINENO}" ;;
     esac
     if build libtool "$ver"; then
-        download "https://ftp.gnu.org/gnu/libtool/libtool-$ver.tar.xz"
+        download_with_fallback "$GNU_PRIMARY_MIRROR/libtool/libtool-$ver.tar.xz" \
+            "$GNU_FALLBACK_MIRROR/libtool/libtool-$ver.tar.xz"
         execute sh configure --prefix="$workspace" --with-pic M4="$workspace/bin/m4"
         execute make "-j$cpu_threads"
         execute make install

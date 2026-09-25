@@ -6,7 +6,10 @@ cwd="$PWD/magick-build-script"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
 GNU_PRIMARY_MIRROR="https://ftp.gnu.org/gnu"
-GNU_FALLBACK_MIRROR="https://ftpmirror.gnu.org"
+# A fixed HTTPS mirror, not ftpmirror.gnu.org: that one redirects to a random
+# mirror that may be plain HTTP, which curl's HTTPS-only redirect policy
+# rejects. Same /gnu/<package>/ layout as the primary.
+GNU_FALLBACK_MIRROR="https://mirrors.kernel.org/gnu"
 
 # Pre-defined color variables
 RED='\033[0;31m'
