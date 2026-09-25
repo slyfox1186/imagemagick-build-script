@@ -1,5 +1,5 @@
 # Copy this template to custom.toml, edit it, and then run:
-# bash build-magick.sh --config ./custom.toml
+# python3 build-magick.py --build --config ./custom.toml
 #
 # This project accepts a deliberately small TOML subset:
 #   [build]
@@ -21,10 +21,10 @@
 # delegates) are always installed.
 #
 # The groups below are for readability, with package keys alphabetized
-# inside each group. They do not control build order; the scripts fix the
-# build order themselves. Some selections are impossible and fail up
-# front: the raqm text stack needs freetype, fribidi, and harfbuzz;
-# fontconfig needs freetype and libxml2; libtiff needs libjpeg-turbo.
+# inside each group. They do not control build order; the builder fixes the
+# build order itself. Some selections are impossible and fail up front: the
+# raqm text stack needs freetype, fribidi, and harfbuzz; fontconfig needs
+# freetype and libxml2; libtiff needs libjpeg-turbo.
 #
 # The active selection is recorded in the build context. Changing it
 # invalidates the completion markers and the workspace automatically on
