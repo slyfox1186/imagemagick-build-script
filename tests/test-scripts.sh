@@ -457,6 +457,41 @@ UNIT
     rm -rf -- "$sandbox"
 }
 
+test_font_install_prints_a_count_not_the_file_list() {
+    local label="font install prints one summary line and logs the full file list"
+    local sandbox status
+    sandbox=$(make_sandbox)
+    run_unit_in_sandbox "$sandbox" <<'UNIT'
+        mkdir -p "$cwd" fam/TTF fam/OTF fam/.git
+        init_build_log
+        touch fam/TTF/A.ttf fam/TTF/B.ttf fam/OTF/A.otf fam/.git/C.ttf fam/README.md
+        root_calls="$PWD/root-calls"
+        exec_root() { printf '%s\n' "$*" >>"$root_calls"; }
+        cd fam || exit 90
+        install_font_files fam >"$OLDPWD/terminal.txt"
+        cd "$OLDPWD" || exit 90
+        [[ "$(<terminal.txt)" == '$ exec_root install -D -m 644 -t /usr/share/fonts/truetype/fam <3 font files>' ]] || {
+            printf 'terminal output:\n%s\n' "$(<terminal.txt)" >&2
+            exit 7
+        }
+        [[ "$(wc -l <"$root_calls")" -eq 1 ]] || exit 8
+        for f in ./TTF/A.ttf ./TTF/B.ttf ./OTF/A.otf; do
+            grep -q "^install -D -m 644 -t /usr/share/fonts/truetype/fam .*$f" "$root_calls" || exit 8
+            grep -q "^\\$ exec_root install .*$f" "$BUILD_LOG" || exit 9
+        done
+        ! grep -q 'C.ttf\|README' "$root_calls" || exit 8
+UNIT
+    status=$(<"$sandbox/status.txt")
+    case "$status" in
+        0) tap_ok "$label" ;;
+        7) tap_fail "$label" "the terminal output was not the one summary line: $(<"$sandbox/unit-err.txt")" ;;
+        8) tap_fail "$label" "the install did not receive exactly the three font files: $(<"$sandbox/root-calls")" ;;
+        9) tap_fail "$label" "the build log is missing the full install command" ;;
+        *) tap_fail "$label" "unexpected status $status: $(<"$sandbox/unit-err.txt")" ;;
+    esac
+    rm -rf -- "$sandbox"
+}
+
 test_init_build_log_refuses_symlink() {
     local label="the build log refuses to follow a symlink"
     local sandbox status
@@ -532,7 +567,7 @@ UNIT
     status=$(<"$sandbox/status.txt")
     if [[ "$status" == "0" || "$status" == "7" ]]; then
         tap_fail "$label" "an unmarked build root was removed (status $status)"
-    elif [[ ! -d "$sandbox/magick-build-script/precious" ]]; then
+    elif [[ ! -d "$sandbox/build/precious" ]]; then
         tap_fail "$label" "the unmarked directory contents were deleted"
     else
         tap_ok "$label"
@@ -1213,7 +1248,7 @@ BODY
     status=$?
     if [[ "$status" != "130" ]]; then
         tap_fail "$label" "exit status was $status, expected 130: $(<"$sandbox/driver-err.txt")"
-    elif ! flock -n "$sandbox/magick-build-script/.magick-build-lock" -c true; then
+    elif ! flock -n "$sandbox/build/.magick-build-lock" -c true; then
         tap_fail "$label" "the lock is still held after SIGINT"
     elif pgrep -f "$sandbox" >/dev/null 2>&1; then
         tap_fail "$label" "child processes survived SIGINT: $(pgrep -af "$sandbox")"
@@ -1333,9 +1368,9 @@ UNIT
     status=$(<"$sandbox/status.txt")
     if [[ "$status" == "0" || "$status" == "7" ]]; then
         tap_fail "$label" "a broken archive did not abort (status $status)"
-    elif [[ -e "$sandbox/magick-build-script/packages/broken" ]]; then
+    elif [[ -e "$sandbox/build/packages/broken" ]]; then
         tap_fail "$label" "a target directory was published for a broken archive"
-    elif compgen -G "$sandbox/magick-build-script/packages/.extract.*" >/dev/null; then
+    elif compgen -G "$sandbox/build/packages/.extract.*" >/dev/null; then
         tap_fail "$label" "an extraction temp directory was left behind"
     else
         tap_ok "$label"
@@ -1422,9 +1457,9 @@ UNIT
     status=$(<"$sandbox/status.txt")
     if [[ "$status" == "0" || "$status" == "7" ]]; then
         tap_fail "$label" "a failed transfer did not abort (status $status)"
-    elif [[ -e "$sandbox/magick-build-script/packages/pkg.tar" ]]; then
+    elif [[ -e "$sandbox/build/packages/pkg.tar" ]]; then
         tap_fail "$label" "a partial archive was published to the cache"
-    elif compgen -G "$sandbox/magick-build-script/packages/.pkg.tar.part.*" >/dev/null; then
+    elif compgen -G "$sandbox/build/packages/.pkg.tar.part.*" >/dev/null; then
         tap_fail "$label" "a part-file was left behind"
     else
         tap_ok "$label"
@@ -1511,7 +1546,7 @@ UNIT
     status=$(<"$sandbox/status.txt")
     if [[ "$status" == "0" || "$status" == "7" ]]; then
         tap_fail "$label" "a marker was recorded without artifacts (status $status)"
-    elif [[ -e "$sandbox/magick-build-script/packages/m4.done" ]]; then
+    elif [[ -e "$sandbox/build/packages/m4.done" ]]; then
         tap_fail "$label" "a marker file exists despite the refusal"
     else
         tap_ok "$label"
@@ -1624,6 +1659,7 @@ test_build_root_marker_rejects_copies
 test_build_root_lock_is_exclusive
 test_execute_appends_to_build_log
 test_execute_failure_replays_log_tail
+test_font_install_prints_a_count_not_the_file_list
 test_init_build_log_refuses_symlink
 test_cleanup_noninteractive_preserves_files
 test_cleanup_always_removes_marked_root

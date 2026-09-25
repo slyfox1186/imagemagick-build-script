@@ -7,15 +7,16 @@
 install_font_files() {
     local repo_name="$1" font_file
     local dest="/usr/share/fonts/truetype/$1"
-    local -a font_files=()
+    local -a font_files=() install_cmd
     while IFS= read -r -d '' font_file; do
         font_files+=("$font_file")
     done < <(find . -type f \( -iname '*.ttf' -o -iname '*.otf' \) -not -path './.git/*' -print0)
     [[ "${#font_files[@]}" -gt 0 ]] ||
         fail "No .ttf/.otf files found in the $repo_name repository; refusing to record it as installed."
-    execute exec_root mkdir -p "$dest"
-    execute exec_root install -m 644 -t "$dest" "${font_files[@]}"
-    log "Installed ${#font_files[@]} font files to $dest"
+    # -D creates $dest. The terminal shows a file count, not the file list.
+    install_cmd=(exec_root install -D -m 644 -t "$dest")
+    execute_as "${install_cmd[*]} <${#font_files[@]} font files>" \
+        "${install_cmd[@]}" "${font_files[@]}"
 }
 
 stage_install_fonts() {

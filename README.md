@@ -101,14 +101,14 @@ build). `example.toml` lists every supported key with a description.
 
 ## Build state model
 
-All state lives under `./magick-build-script/` (created in the directory
+All state lives under `./build/` (created in the directory
 you run from):
 
 - Each package records a completion marker `packages/<name>.done`
   containing the built version and, for git sources, the exact 40-character
   commit. A rerun reuses recorded versions **offline** - no network traffic
   for completed packages - unless you pass `--latest`.
-- To force one package to rebuild: `rm -f -- magick-build-script/packages/<name>.done`
+- To force one package to rebuild: `rm -f -- build/packages/<name>.done`
 - Markers are only trusted while the package's artifacts still exist; if
   artifacts vanish, the package rebuilds automatically. Markers from
   releases of this script before 2.0.0 use an older format and trigger a
@@ -184,7 +184,7 @@ upstream repositories pinned at the HEAD commit.
 ## Troubleshooting
 
 - Full command output for every build step is appended to
-  `magick-build-script/build.log`; failures replay the last 40 lines.
+  `build/build.log`; failures replay the last 40 lines.
 - Interrupted builds are safe to rerun: completed packages are skipped,
   partial downloads/extractions are never published, and the interrupted
   package restarts cleanly.

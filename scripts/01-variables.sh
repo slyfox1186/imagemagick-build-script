@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 
 # SET GLOBAL VARIABLES
-cwd="$PWD/magick-build-script"
+cwd="$PWD/build"
 packages="$cwd/packages"
 workspace="$cwd/workspace"
 GNU_PRIMARY_MIRROR="https://ftp.gnu.org/gnu"
