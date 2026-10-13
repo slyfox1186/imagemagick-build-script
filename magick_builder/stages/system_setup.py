@@ -14,7 +14,7 @@ from ..runtime.errors import BuildError
 APT_SCRIPT_OPTIONS = ("-o", "APT::Cmd::Disable-Script-Warning=1")
 
 # Delegate-enabling packages, all verified available on every supported
-# release by tools/check_apt_availability.py:
+# release:
 # - libdjvulibre/fftw3/lqr/openexr/pango/raw/wmf/zip dev packages light up the
 #   djvu/fftw/lqr/openexr/pangocairo/raw/wmf/zip delegates.
 # - libbz2/libjbig/liblzma/libzstd dev packages make the bzlib/jbig/lzma/zstd

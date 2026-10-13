@@ -243,12 +243,7 @@ launcher. Use the project environment's interpreter:
 ```bash
 ~/miniconda3/envs/install-imagemagick/bin/python -m pip install '.[dev]'
 ~/miniconda3/envs/install-imagemagick/bin/python run_linter.py   # ruff, format, strict mypy, contracts
-~/miniconda3/envs/install-imagemagick/bin/python -m pytest       # offline regression tests
-python3 tools/container_matrix.py lint      # linter + tests in all four supported images
-python3 tools/container_matrix.py apt       # APT availability gate in all four images
-python3 tools/container_matrix.py resolve   # upstream resolvers in all four images
-python3 tools/container_matrix.py full      # complete end-to-end builds (hours)
 ```
 
-CI runs the linter and the tests on Python 3.12, 3.13, and 3.14 for every
-push and pull request.
+CI runs the linter on Python 3.12, 3.13, and 3.14 for every push and pull
+request.

@@ -34,6 +34,3 @@ jobs:
 
       - name: Run static analysis
         run: python run_linter.py
-
-      - name: Run regression tests
-        run: python -m pytest

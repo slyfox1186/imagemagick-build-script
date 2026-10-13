@@ -72,7 +72,10 @@ def contract_errors(root: Path) -> list[str]:
 
 def main() -> int:
     failed = False
-    for command in (("ruff", "check", "."), ("ruff", "format", "--check", "."), ("mypy",)):
+    # tests/ and tools/ are local-only (gitignored); type-check them when present.
+    local = tuple(name for name in ("tests", "tools") if (REPO_ROOT / name).is_dir())
+    mypy = ("mypy", "build-magick.py", "run_linter.py", "magick_builder", *local)
+    for command in (("ruff", "check", "."), ("ruff", "format", "--check", "."), mypy):
         result = subprocess.run([sys.executable, "-m", *command], cwd=REPO_ROOT, check=False)
         failed |= result.returncode != 0
     try:

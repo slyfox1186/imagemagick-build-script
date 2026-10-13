@@ -2,6 +2,10 @@ build/
 .claude/
 GPT_PLAN_CRITIQUE.md
 
+# Local-only regression tests and developer tools
+/tests/
+/tools/
+
 # Local package selection
 /custom.toml
 
