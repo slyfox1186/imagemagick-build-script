@@ -1,5 +1,4 @@
 build/
-.claude/
 GPT_PLAN_CRITIQUE.md
 
 # Local-only regression tests, developer tools and the retired CI workflow

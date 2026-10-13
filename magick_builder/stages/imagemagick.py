@@ -18,7 +18,11 @@ from ..runtime.context import MAGICK_BINARY, BuildContext
 from ..runtime.errors import BuildError
 from ..runtime.paths import safe_remove_tree
 from ..runtime.state import CONFIGURE_FINGERPRINT_SUFFIX, publish_atomically
-from .self_contained import SelfContainedInstall, audit_published_install
+from .self_contained import (
+    BUNDLED_LIBRARY_DIRECTORY,
+    SelfContainedInstall,
+    audit_published_install,
+)
 
 # Part of the configure fingerprint. Bump it when the recipe changes what gets
 # built without changing a configure argument, so existing installs rebuild once.
@@ -142,7 +146,18 @@ class ImageMagickStage:
             raise BuildError(f"The staged install wrote outside /usr: {', '.join(outside)}")
         completed = self.context.runner.capture(
             [str(staged_magick), "-version"],
-            env_overrides={"LD_LIBRARY_PATH": f"{staging}/usr/local/lib:{staging}/usr/local/lib64"},
+            # The bundled libraries are found through a run path that names
+            # their published location, which does not exist until publication.
+            env_overrides={
+                "LD_LIBRARY_PATH": ":".join(
+                    str(staging / directory)
+                    for directory in (
+                        "usr/local/lib",
+                        "usr/local/lib64",
+                        BUNDLED_LIBRARY_DIRECTORY.relative_to("/"),
+                    )
+                )
+            },
         )
         line = completed.stdout.split("\n", 1)[0]
         if completed.returncode != 0:
