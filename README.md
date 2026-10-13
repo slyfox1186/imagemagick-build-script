@@ -245,5 +245,4 @@ launcher. Use the project environment's interpreter:
 ~/miniconda3/envs/install-imagemagick/bin/python run_linter.py   # ruff, format, strict mypy, contracts
 ```
 
-CI runs the linter on Python 3.12, 3.13, and 3.14 for every push and pull
-request.
+The linter and the tests run locally; the repository has no hosted CI.
