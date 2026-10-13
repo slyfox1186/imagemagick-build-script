@@ -159,8 +159,9 @@ def test_recipe_keeps_the_shipped_configure(
     monkeypatch.setattr(context, "build", lambda _key, _version: True)
     monkeypatch.setattr(context, "download", lambda _url, _name=None: source)
     monkeypatch.setattr(context, "execute", record)
-    for name in ("validate_staged_install", "publish", "validate_installation"):
+    for name in ("validate_staged_install", "validate_installation"):
         monkeypatch.setattr(stage, name, lambda *_args: None)
+    monkeypatch.setattr(stage, "publish", lambda *_args: [])
     monkeypatch.setattr(context, "build_done", lambda *_args: None)
     monkeypatch.setattr(imagemagick, "publish_atomically", lambda *_args: None)
     stage.run()

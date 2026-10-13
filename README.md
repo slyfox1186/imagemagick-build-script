@@ -161,6 +161,15 @@ All state lives under `./build/` (override with `BUILD_ROOT=/path`):
   to `/usr/local` in a single privileged copy - upstream's install recipe
   never runs as root. The installed file list is recorded at
   `/usr/local/share/imagemagick-build-script/manifest.txt`.
+- The published install never depends on the build root, so `--cleanup`
+  cannot break it. Before publication, every workspace shared library it
+  loads (jemalloc, libfpx, ...) is copied into
+  `/usr/local/lib/imagemagick-build-script`, a private directory only
+  ImageMagick's run paths name, so the system's own copies are never
+  shadowed. Build-root run paths are removed with `patchelf`, and the
+  libtool, pkg-config, `*-config` and Perl records stop naming the build
+  root. fontconfig and libxml2 are compiled to read the system's `/etc` and
+  `/var`.
 - Every build command runs with an allowlisted environment, so a Conda or
   virtual environment cannot leak compilers, flags, or library paths into
   the native builds, and upstream build systems cannot discover this
@@ -190,8 +199,11 @@ The builder only reports success after the installed `/usr/local/bin/magick`:
 2. contains every delegate this project exists to provide
    (bzlib, fontconfig, freetype, fpx, gslib, gvc, heic, jbig, jng, jp2,
    jpeg, lcms, lzma, png, raqm, rsvg, tiff, webp, xml, zlib, zstd),
-3. exposes a resolvable `MagickCore.pc` under `/usr/local/lib/pkgconfig`,
-4. completes a real conversion round-trip (`logo:` -> PNG -> WebP).
+3. exposes a resolvable `MagickCore.pc` under `/usr/local/lib/pkgconfig`
+   and a working `MagickCore-config`,
+4. loads every library of every installed program, library and module
+   from outside the build root,
+5. completes a real conversion round-trip (`logo:` -> PNG -> WebP).
 
 A validated build reports, for example:
 

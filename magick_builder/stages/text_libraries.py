@@ -7,9 +7,11 @@ verified against the resolved commit.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from ..runtime.context import BuildContext
+from ..runtime.paths import safe_remove_tree
 from .helpers import cmake_release_options, each_define, meson_static_install, ninja_install
 
 
@@ -62,6 +64,25 @@ def libiconv_cmake_options(context: BuildContext) -> list[str]:
     return []
 
 
+def install_under_workspace(context: BuildContext, source: Path) -> None:
+    """`make install` through DESTDIR, keeping only what lands in the workspace.
+
+    The /etc, /var and /usr/share files belong to the system's fontconfig
+    packages; writing them would need root, and DESTDIR also skips fc-cache.
+    """
+    destination = context.packages / "fontconfig-destdir"
+    if destination.exists():
+        safe_remove_tree(destination, context.packages)
+    context.make(source, "install", f"DESTDIR={destination}", jobs=False)
+    shutil.copytree(
+        destination / context.workspace.relative_to("/"),
+        context.workspace,
+        symlinks=True,
+        dirs_exist_ok=True,
+    )
+    safe_remove_tree(destination, context.packages)
+
+
 def install_text_libraries(context: BuildContext) -> None:
     context.logger.banner("Building Text Libraries")
     env = context.env
@@ -92,6 +113,9 @@ def install_text_libraries(context: BuildContext) -> None:
                 "build",
                 *cmake_release_options(context),
                 "-DBUILD_SHARED_LIBS=OFF",
+                # The default XML catalog path is compiled into ImageMagick;
+                # the workspace one is deleted with the build root.
+                "-DCMAKE_INSTALL_SYSCONFDIR=/etc",
                 "-DLIBXML2_WITH_PYTHON=OFF",
                 *libiconv_cmake_options(context),
                 "-G",
@@ -129,13 +153,18 @@ def install_text_libraries(context: BuildContext) -> None:
                 "--with-arch=x86_64",
                 "--with-libiconv-prefix=/usr",
                 "--with-pic",
+                # Configuration, templates and cache locations are compiled into
+                # ImageMagick: use the system's, which outlive the build root.
+                "--sysconfdir=/etc",
+                "--localstatedir=/var",
+                "--with-templatedir=/usr/share/fontconfig/conf.avail",
                 f"CFLAGS={env['CFLAGS']} -I/usr/include -I/usr/include/libxml2",
                 f"LDFLAGS={env['LDFLAGS']} -DLIBXML_STATIC -L/usr/lib/{multiarch} -lz -llzma",
             ],
             cwd=source,
         )
         context.make(source)
-        context.make(source, "install", jobs=False)
+        install_under_workspace(context, source)
         context.build_done("fontconfig", resolved.version, resolved.commit)
 
     resolved = context.resolve("fribidi")

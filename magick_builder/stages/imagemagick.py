@@ -18,12 +18,15 @@ from ..runtime.context import MAGICK_BINARY, BuildContext
 from ..runtime.errors import BuildError
 from ..runtime.paths import safe_remove_tree
 from ..runtime.state import CONFIGURE_FINGERPRINT_SUFFIX, publish_atomically
+from .self_contained import SelfContainedInstall, audit_published_install
 
 # Part of the configure fingerprint. Bump it when the recipe changes what gets
 # built without changing a configure argument, so existing installs rebuild once.
 # Revision 2: configure is no longer regenerated with autoreconf, which had
 # baked this repository's Git commit into ImageMagick's version string.
-RECIPE_REVISION = "2"
+# Revision 3: the install bundles its workspace libraries and no longer
+# depends on the build root (see self_contained.py).
+RECIPE_REVISION = "3"
 MANIFEST_DIRECTORY = "usr/local/share/imagemagick-build-script"
 
 
@@ -191,6 +194,10 @@ class ImageMagickStage:
                 f"MagickCore.pc reports '{pc.stdout.strip()}', expected '{base_version}'."
             )
 
+        config_script = magick.parent / "MagickCore-config"
+        if config_script.exists() and runner.capture([str(config_script), "--cflags"]).returncode:
+            raise BuildError(f"{config_script} --cflags fails.")
+
         policy = runner.capture([str(magick), "identify", "-list", "policy"])
         policy_path = next(
             (
@@ -222,7 +229,7 @@ class ImageMagickStage:
 
     # -- publication -----------------------------------------------------
 
-    def publish(self, staging: Path) -> None:
+    def publish(self, staging: Path) -> list[Path]:
         """One privileged copy of the validated tree, with an inspectable manifest.
 
         Upstream's install recipe never runs as root. `--no-overwrite-dir` keeps
@@ -263,6 +270,7 @@ class ImageMagickStage:
             archive.unlink(missing_ok=True)
             context.unregister_temporary_path(archive)
         self.logger.info(f"Install manifest: /{manifest}")
+        return [Path("/", entry) for entry in entries]
 
     # -- the stage -------------------------------------------------------
 
@@ -307,9 +315,11 @@ class ImageMagickStage:
         if staging.exists() or staging.is_symlink():
             safe_remove_tree(staging, context.packages)
         context.execute(["make", f"DESTDIR={staging}", "install"], cwd=build_directory)
+        SelfContainedInstall(context, staging).apply()
         self.validate_staged_install(staging, version)
-        self.publish(staging)
+        published = self.publish(staging)
         context.sudo("ldconfig")
+        audit_published_install(context, published)
         self.validate_installation(version)
         context.build_done("imagemagick", version, resolved.commit)
         publish_atomically(self.fingerprint_file, f"{fingerprint}\n")

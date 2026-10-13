@@ -24,6 +24,9 @@ APT_SCRIPT_OPTIONS = ("-o", "APT::Cmd::Disable-Script-Warning=1")
 # - ghostscript provides the runtime `gs` binary: delegates.xml shells out to it
 #   for PDF/PS work, and the workspace-built gs is deleted with the build tree.
 # - ffmpeg is the runtime video delegate (mpeg/mp4/webm coders).
+# - fontconfig-config provides /etc/fonts, which the workspace fontconfig is
+#   compiled to read; patchelf rewrites the install's run paths
+#   (stages/self_contained.py).
 # The legacy libjpeg62* packages are absent with evidence: nothing consumes
 # them (jpeg comes from the workspace libjpeg-turbo), and on Ubuntu 24.04
 # libjpeg62-dev conflicts with the libjpeg-turbo8-dev that libgraphviz-dev needs.
@@ -41,6 +44,7 @@ BASE_PACKAGES = (
     "flex",
     "fontforge",
     "fonts-dejavu-core",
+    "fontconfig-config",
     "fonts-urw-base35",
     "ghostscript",
     "git",
@@ -89,6 +93,7 @@ BASE_PACKAGES = (
     "meson",
     "nasm",
     "ninja-build",
+    "patchelf",
     "pkg-config",
     "python3-dev",
     "xz-utils",

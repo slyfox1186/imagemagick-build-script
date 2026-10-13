@@ -90,6 +90,12 @@ def validate_request(selection: Selection) -> None:
         raise UsageError(f"Invalid build request:\n - {listed}")
 
 
+# Bump when a workspace package's recipe changes what it compiles in, so
+# existing build trees rebuild. Revision 2: fontconfig and libxml2 read the
+# system's /etc and /var instead of the workspace's.
+WORKSPACE_RECIPE_REVISION = "2"
+
+
 class Orchestrator:
     def __init__(self, repo_root: Path, argv: list[str]) -> None:
         self.repo_root = repo_root
@@ -211,6 +217,7 @@ class Orchestrator:
             "cxxflags": env["CXXFLAGS"],
             "cppflags": env["CPPFLAGS"],
             "ldflags": env["LDFLAGS"],
+            "recipe": WORKSPACE_RECIPE_REVISION,
         }
         if context.selection.has_config:
             # A selection change invalidates everything: configure probes see

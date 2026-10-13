@@ -192,6 +192,7 @@ CONTEXT_FIELDS = (
     "cppflags",
     "ldflags",
     "package_selection",
+    "recipe",
 )
 
 
