@@ -37,7 +37,7 @@ def install_font_files(context: BuildContext, key: str, checkout: Path) -> None:
     # -D creates the destination; the terminal shows a count, the log every file.
     command = ["sudo", "install", "-D", "-m", "644", "-t", str(destination)]
     context.execute(
-        [*command, *(str(path.relative_to(checkout)) for path in files)],
+        [*command, "--", *(str(path.relative_to(checkout)) for path in files)],
         cwd=checkout,
         display=f"{' '.join(command)} <{len(files)} font files>",
     )

@@ -23,6 +23,16 @@ _COMMIT = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})")
 
 CLONE_MODES = ("shallow", "recurse", "full")
 
+# Every Git command that can reach a remote: HTTPS only, never a prompt, and no
+# system or user configuration, where http.sslVerify=false would turn
+# certificate checks off and url.*.insteadOf would redirect the fetch.
+GIT_HTTPS_ONLY = ("git", "-c", "protocol.allow=never", "-c", "protocol.https.allow=always")
+GIT_ENVIRONMENT = {
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+}
+
 
 class GitCloner:
     """Clones an upstream repository into the package cache."""
@@ -52,7 +62,9 @@ class GitCloner:
 
     def local_head(self, directory: Path) -> str | None:
         completed = self.runner.capture(
-            ["git", "-C", str(directory), "rev-parse", "HEAD"], timeout=self.operation_timeout
+            ["git", "-C", str(directory), "rev-parse", "HEAD"],
+            env_overrides=GIT_ENVIRONMENT,
+            timeout=self.operation_timeout,
         )
         if completed.returncode != 0:
             return None
@@ -99,18 +111,14 @@ class GitCloner:
                 "timeout",
                 "--foreground",
                 str(self.clone_timeout),
-                "git",
-                "-c",
-                "protocol.allow=never",
-                "-c",
-                "protocol.https.allow=always",
+                *GIT_HTTPS_ONLY,
                 "clone",
                 *options,
                 "--",
                 repository_url,
                 str(clone_directory),
             ]
-            if self.runner.run_logged(arguments, env_overrides={"GIT_TERMINAL_PROMPT": "0"}) == 0:
+            if self.runner.run_logged(arguments, env_overrides=GIT_ENVIRONMENT) == 0:
                 break
             self._discard(clone_parent)
             if attempt == 1:

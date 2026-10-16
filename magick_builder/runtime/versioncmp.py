@@ -79,9 +79,10 @@ def _verrevcmp(left: str, right: str) -> int:
 
 
 def _prefix_length(value: str) -> int:
-    match = _FILE_SUFFIX.search(value)
-    prefix_length = match.start() if match else len(value)
-    return prefix_length if prefix_length else len(value)
+    # The first character always belongs to the prefix, so a leading `.` never
+    # starts a suffix.
+    match = _FILE_SUFFIX.search(value, 1)
+    return match.start() if match else len(value)
 
 
 def version_compare(left: str, right: str) -> int:

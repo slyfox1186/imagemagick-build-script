@@ -70,9 +70,13 @@ def https_curl_arguments(
     *, connect_timeout: int, max_time: int, retry: int, retry_delay: int
 ) -> list[str]:
     """The curl flags every fetch shares: HTTPS pinned across redirects, TLS 1.2
-    or newer, the project user agent, and bounded retries."""
+    or newer, the project user agent, and bounded retries.
+
+    `--disable` must come first; it stops curl reading ~/.curlrc, where an
+    `insecure` line would turn certificate verification off."""
     return [
         "curl",
+        "--disable",
         "--fail",
         "--silent",
         "--show-error",

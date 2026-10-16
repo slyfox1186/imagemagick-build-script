@@ -160,7 +160,10 @@ All state lives under `./build/` (override with `BUILD_ROOT=/path`):
   the build user). Only after the staged tree validates is it published
   to `/usr/local` in a single privileged copy - upstream's install recipe
   never runs as root. The installed file list is recorded at
-  `/usr/local/share/imagemagick-build-script/manifest.txt`.
+  `/usr/local/share/imagemagick-build-script/manifest.txt`; files the
+  previous install put in ImageMagick's own module tree or private library
+  directory that this one no longer has are removed, so a disabled delegate's
+  old coder module cannot keep loading.
 - The published install never depends on the build root, so `--cleanup`
   cannot break it. Before publication, every workspace shared library it
   loads (jemalloc, libfpx, ...) is copied into
@@ -186,10 +189,12 @@ trust-on-first-use over TLS.
 
 ### ImageMagick security policy
 
-The build keeps upstream's default (open) security policy and prints the
+The build installs upstream's default (open) security policy and prints the
 active policy at the end of the build. If you process untrusted images,
 install a stricter policy - see
-<https://imagemagick.org/script/security-policy.php>.
+<https://imagemagick.org/script/security-policy.php>. Rebuilds keep an
+edited `/usr/local/etc/ImageMagick-7/policy.xml` and only replace a policy
+that is still the default this builder installed.
 
 ## What "success" means
 
@@ -204,6 +209,9 @@ The builder only reports success after the installed `/usr/local/bin/magick`:
 4. loads every library of every installed program, library and module
    from outside the build root,
 5. completes a real conversion round-trip (`logo:` -> PNG -> WebP).
+
+Selections that disable PNG or WebP test only the enabled formats; a selection
+with both disabled tests ImageMagick's native MIFF format.
 
 A validated build reports, for example:
 

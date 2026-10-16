@@ -72,10 +72,12 @@ def contract_errors(root: Path) -> list[str]:
 
 def main() -> int:
     failed = False
-    # tests/ and tools/ are local-only (gitignored); type-check them when present.
+    # tests/ and tools/ are local-only (gitignored); check them when present.
+    # Ruff skips gitignored files under ".", so they are named explicitly.
     local = tuple(name for name in ("tests", "tools") if (REPO_ROOT / name).is_dir())
     mypy = ("mypy", "build-magick.py", "run_linter.py", "magick_builder", *local)
-    for command in (("ruff", "check", "."), ("ruff", "format", "--check", "."), mypy):
+    ruff = (("ruff", "check", ".", *local), ("ruff", "format", "--check", ".", *local))
+    for command in (*ruff, mypy):
         result = subprocess.run([sys.executable, "-m", *command], cwd=REPO_ROOT, check=False)
         failed |= result.returncode != 0
     try:

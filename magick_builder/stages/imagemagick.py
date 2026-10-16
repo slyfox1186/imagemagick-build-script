@@ -32,6 +32,11 @@ from .self_contained import (
 # depends on the build root (see self_contained.py).
 RECIPE_REVISION = "3"
 MANIFEST_DIRECTORY = "usr/local/share/imagemagick-build-script"
+MANIFEST_FILE = f"{MANIFEST_DIRECTORY}/manifest.txt"
+POLICY_FILE = "usr/local/etc/ImageMagick-7/policy.xml"
+# The digest of the default policy this builder last published: a later publish
+# replaces an untouched default but never an administrator's edited policy.
+POLICY_RECORD = f"{MANIFEST_DIRECTORY}/policy.sha256"
 
 
 def toggle_arguments(context: BuildContext) -> list[str]:
@@ -129,6 +134,52 @@ def reported_version_matches(line: str, version: str) -> bool:
     return f"ImageMagick {version} " in f"{line} "
 
 
+def read_installed_manifest() -> list[str]:
+    """The entries the previous publish recorded, or none when it left no readable record."""
+    try:
+        return Path("/", MANIFEST_FILE).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return []
+
+
+def stale_entries(previous: list[str], current: list[str]) -> list[str]:
+    """Files the previous publish installed that this one does not, where they still matter.
+
+    ImageMagick loads every coder module in its versioned module directory, so a
+    module left by a build with more delegates keeps a disabled format working.
+    Only the private library bundle and the versioned trees this install also
+    populates are pruned: a public library such as an older libMagickCore soname
+    stays for whatever links it.
+    """
+    kept = set(current)
+    bundle = f"{BUNDLED_LIBRARY_DIRECTORY.relative_to('/')}/"
+    trees = {
+        Path(entry).parts[:4] for entry in current if entry.startswith("usr/local/lib/ImageMagick-")
+    }
+    return [
+        entry
+        for entry in previous
+        if entry not in kept
+        and ".." not in Path(entry).parts
+        and (entry.startswith(bundle) or Path(entry).parts[:4] in trees)
+    ]
+
+
+def policy_is_customized(installed: Path, record: Path) -> bool:
+    """True unless the live policy is the default this builder last published.
+
+    Without a record (an install from before it was kept) an existing policy
+    cannot be shown to be unmodified, so it counts as customized.
+    """
+    if not installed.exists() and not installed.is_symlink():
+        return False
+    try:
+        digest = hashlib.sha256(installed.read_bytes()).hexdigest()
+        return digest != record.read_text(encoding="utf-8").strip()
+    except OSError:
+        return True
+
+
 class ImageMagickStage:
     def __init__(self, context: BuildContext) -> None:
         self.context = context
@@ -137,13 +188,20 @@ class ImageMagickStage:
     # -- validation ------------------------------------------------------
 
     def validate_staged_install(self, staging: Path, version: str) -> None:
-        """Nothing outside ./usr, and a staged magick reporting this version."""
+        """Nothing outside ./usr/local, and a staged magick reporting this version."""
         staged_magick = staging / "usr/local/bin/magick"
         if not os.access(staged_magick, os.X_OK):
             raise BuildError("The staged install is missing usr/local/bin/magick.")
         outside = sorted(entry.name for entry in staging.iterdir() if entry.name != "usr")
         if outside:
             raise BuildError(f"The staged install wrote outside /usr: {', '.join(outside)}")
+        usr = staging / "usr"
+        local = usr / "local"
+        if usr.is_symlink() or local.is_symlink() or not local.is_dir():
+            raise BuildError("The staged /usr/local prefix must contain real directories.")
+        outside = sorted(entry.name for entry in usr.iterdir() if entry.name != "local")
+        if outside:
+            raise BuildError(f"The staged install wrote outside /usr/local: {', '.join(outside)}")
         completed = self.context.runner.capture(
             [str(staged_magick), "-version"],
             # The bundled libraries are found through a run path that names
@@ -227,19 +285,27 @@ class ImageMagickStage:
 
         smoke = Path(tempfile.mkdtemp(prefix=".smoke.", dir=context.cwd))
         context.register_temporary_path(smoke)
+        formats = [
+            extension
+            for package, extension in (("libpng", "png"), ("libwebp", "webp"))
+            if context.package_enabled(package)
+        ] or ["miff"]
+        source = "logo:"
+        steps = ["logo:"]
         try:
-            for source, target, step in (
-                ("logo:", smoke / "logo.png", "magick logo: -> PNG"),
-                (str(smoke / "logo.png"), smoke / "logo.webp", "PNG -> WebP conversion"),
-            ):
+            for extension in formats:
+                target = smoke / f"logo.{extension}"
+                label = "WebP" if extension == "webp" else extension.upper()
+                steps.append(label)
                 if runner.capture([str(magick), source, str(target)], timeout=120).returncode:
-                    raise BuildError(f"Functional smoke test failed: {step}.")
+                    raise BuildError(f"Functional smoke test failed: {' -> '.join(steps)}.")
                 if not target.is_file() or target.stat().st_size == 0:
                     raise BuildError("Functional smoke test produced empty output files.")
+                source = str(target)
         finally:
             safe_remove_tree(smoke, context.cwd)
             context.unregister_temporary_path(smoke)
-        self.logger.info("Functional smoke test passed (logo: -> PNG -> WebP).")
+        self.logger.info(f"Functional smoke test passed ({' -> '.join(steps)}).")
         context.magick_validated = True
 
     # -- publication -----------------------------------------------------
@@ -248,19 +314,32 @@ class ImageMagickStage:
         """One privileged copy of the validated tree, with an inspectable manifest.
 
         Upstream's install recipe never runs as root. `--no-overwrite-dir` keeps
-        the ownership and modes of existing directories such as /usr/local.
+        the ownership and modes of existing directories such as /usr/local. An
+        edited security policy is kept, like a dpkg conffile, and files the
+        previous publish left in ImageMagick's own trees are removed.
         """
         context = self.context
         manifest_directory = staging / MANIFEST_DIRECTORY
         manifest_directory.mkdir(parents=True, exist_ok=True)
+        excluded: list[str] = []
+        staged_policy = staging / POLICY_FILE
+        if staged_policy.is_file():
+            digest = hashlib.sha256(staged_policy.read_bytes()).hexdigest()
+            publish_atomically(staging / POLICY_RECORD, f"{digest}\n")
+            if policy_is_customized(Path("/", POLICY_FILE), Path("/", POLICY_RECORD)):
+                excluded.append(f"--exclude={POLICY_FILE}")
+                self.logger.warn(
+                    f"Keeping the customized /{POLICY_FILE}; "
+                    f"this release's default is {staged_policy}."
+                )
         entries = [
             str(path.relative_to(staging))
             for path in (staging / "usr").rglob("*")
             if path.is_symlink() or path.is_file()
         ]
-        manifest = f"{MANIFEST_DIRECTORY}/manifest.txt"
-        entries = sorted([*entries, manifest])
-        publish_atomically(staging / manifest, "\n".join(entries) + "\n")
+        entries = sorted([*entries, MANIFEST_FILE])
+        stale = stale_entries(read_installed_manifest(), entries)
+        publish_atomically(staging / MANIFEST_FILE, "\n".join(entries) + "\n")
 
         archive = context.packages / "imagemagick-install.tar"
         context.register_temporary_path(archive)
@@ -274,17 +353,36 @@ class ImageMagickStage:
                     str(staging),
                     "-cf",
                     str(archive),
+                    *excluded,
                     "usr",
                 ]
             )
             self.logger.info(
                 "Publishing the staged install to /usr/local (single privileged copy)."
             )
-            context.sudo("tar", "-C", "/", "--no-overwrite-dir", "-xf", str(archive))
+            # tar replaces a directory symlink with a real directory unless told
+            # to keep it, as with Debian's /usr/local/man -> share/man.
+            context.sudo(
+                "tar",
+                "-C",
+                "/",
+                "--no-overwrite-dir",
+                "--keep-directory-symlink",
+                "-xf",
+                str(archive),
+            )
+            if stale:
+                context.sudo(
+                    "rm",
+                    "-f",
+                    "--",
+                    *(f"/{entry}" for entry in stale),
+                    display=f"sudo rm -f -- <{len(stale)} files the previous install left>",
+                )
         finally:
             archive.unlink(missing_ok=True)
             context.unregister_temporary_path(archive)
-        self.logger.info(f"Install manifest: /{manifest}")
+        self.logger.info(f"Install manifest: /{MANIFEST_FILE}")
         return [Path("/", entry) for entry in entries]
 
     # -- the stage -------------------------------------------------------
@@ -304,7 +402,18 @@ class ImageMagickStage:
         self.invalidate_stale_marker(fingerprint)
 
         resolved = context.resolve("imagemagick")
-        if resolved is None or not context.build("imagemagick", resolved.version):
+        if resolved is None:
+            return
+        if not context.build("imagemagick", resolved.version):
+            # /usr/local is shared: another build root or a manual install can
+            # have replaced what this marker describes.
+            try:
+                self.validate_installation(resolved.version)
+            except BuildError as error:
+                context.marker_path("imagemagick").unlink(missing_ok=True)
+                raise BuildError(
+                    f"{error} Its completion marker was removed; the next run rebuilds it."
+                ) from error
             return
         version = resolved.version
         if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-[0-9]+", version):

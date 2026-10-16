@@ -282,7 +282,9 @@ class Orchestrator:
             path = repository / legacy
             # A legacy root is only ours while it carries a marker or is empty.
             if path.is_dir() and not path.is_symlink():
-                if (path / BUILD_ROOT_MARKER_NAME).exists() or not any(path.iterdir()):
+                if build_root_marker_matches(
+                    path / BUILD_ROOT_MARKER_NAME, path
+                ) or build_root_is_adoptable(path):
                     candidates.append(path)
         targets: list[Path] = []
         for candidate in candidates:
@@ -360,7 +362,18 @@ class Orchestrator:
     def _remove_leftovers(self, targets: list[Path]) -> None:
         repository = canonicalize(self.repo_root)
         for target in targets:
-            safe_remove_tree(target, repository)
+            if target.name in LEGACY_BUILD_ROOT_NAMES:
+                assert_safe_build_root(target, repository)
+                with self.acquire_lock(target) as lock:
+                    lock.assert_current()
+                    if not (
+                        build_root_marker_matches(target / BUILD_ROOT_MARKER_NAME, target)
+                        or build_root_is_adoptable(target)
+                    ):
+                        raise BuildError(f"Legacy build-root ownership changed: '{target}'.")
+                    safe_remove_tree(target, repository)
+            else:
+                safe_remove_tree(target, repository)
             self.logger.info(f"Removed build leftover: '{target}'.")
 
     # -- the build -------------------------------------------------------

@@ -91,6 +91,13 @@ class SelfContainedInstall:
             if "not a dynamic executable" in completed.stdout + completed.stderr:
                 return {}
             raise BuildError(f"ldd failed for {path}: {completed.stderr.strip()}")
+        for line in completed.stdout.splitlines():
+            fields = line.split()
+            if len(fields) == 2 and self.inside_build_root(fields[0]):
+                raise BuildError(
+                    f"{path} loads an absolute build-root dependency ({fields[0]}); "
+                    "relink it with a soname before publication."
+                )
         return parse_ldd(completed.stdout)
 
     def _patchelf(self, *arguments: str) -> str:

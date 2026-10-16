@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 from .download import https_curl_arguments
 from .exec import Runner
+from .git import GIT_ENVIRONMENT, GIT_HTTPS_ONLY
 from .logging import Logger
 from .versioncmp import version_compare
 
@@ -113,15 +114,8 @@ class VersionResolver:
 
     def _git(self, *arguments: str) -> str | None:
         completed = self.runner.capture(
-            [
-                "git",
-                "-c",
-                "protocol.allow=never",
-                "-c",
-                "protocol.https.allow=always",
-                *arguments,
-            ],
-            env_overrides={"GIT_TERMINAL_PROMPT": "0"},
+            [*GIT_HTTPS_ONLY, *arguments],
+            env_overrides=GIT_ENVIRONMENT,
             timeout=self.git_timeout,
         )
         if completed.returncode != 0:
