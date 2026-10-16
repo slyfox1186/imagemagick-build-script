@@ -45,7 +45,6 @@ _TAGS = {
     "FAIL": "[FAILED]",
     "ERROR": "[ERROR]",
     "PROMPT": "[PROMPT]",
-    "MAGICK": "[MAGICK]",
 }
 _TAG_COLOR = {
     "STEP": "blue",
@@ -58,7 +57,6 @@ _TAG_COLOR = {
     "FAIL": "red",
     "ERROR": "red",
     "PROMPT": "magenta",
-    "MAGICK": "cyan",
 }
 _BOLD_TAGS = ("OK", "WARN", "FAIL", "ERROR", "PROMPT")
 _URL = re.compile(r"(https?://[^\s'\"]+)")
@@ -478,10 +476,6 @@ class Logger:
             self._record("TIME", message)
             return
         self.line("TIME", message)
-
-    def magick(self, message: str) -> None:
-        """A line reported by the magick binary itself, trailing space trimmed."""
-        self.line("MAGICK", message.rstrip())
 
     def debug(self, message: str) -> None:
         """Detail worth having in a bug report that would bury a normal run."""

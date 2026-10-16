@@ -20,6 +20,7 @@ import threading
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
+from typing import IO
 
 from . import shellquote
 from .errors import BuildError, SignalStop
@@ -77,21 +78,26 @@ class CommandFailed(BuildError):
         self.command = command
 
 
+def _is_sudo(arguments: Sequence[str]) -> bool:
+    return Path(arguments[0]).name == "sudo"
+
+
 def _terminate_process(
-    process: subprocess.Popen[bytes], signal_relay: bool, original: BaseException
+    process: subprocess.Popen[bytes], sudo: bool, original: BaseException
 ) -> None:
+    if sudo:
+        # sudo relays TERM and waits for its privileged command, but cannot
+        # relay KILL. Killing sudo could orphan an installer and let it race
+        # rollback. Retain locks until sudo confirms command termination.
+        process.send_signal(signal.SIGTERM)
+        process.wait()
+        return
     try:
         os.killpg(process.pid, signal.SIGTERM)
     except ProcessLookupError:
         pass
     except PermissionError as error:
         original.add_note(f"Unable to signal every process in group {process.pid}: {error}")
-    if signal_relay:
-        # sudo relays TERM and waits for its privileged command, but cannot
-        # relay KILL. Killing sudo could orphan an installer and let it race
-        # rollback. Retain locks until sudo confirms command termination.
-        process.wait()
-        return
     try:
         process.wait(timeout=1)
     except subprocess.TimeoutExpired:
@@ -106,26 +112,47 @@ def _terminate_process(
         process.wait()
 
 
-def _relays_signals(arguments: Sequence[str]) -> bool:
-    return Path(arguments[0]).name == "sudo"
-
-
 @contextmanager
 def managed_process(
-    process: subprocess.Popen[bytes], *, signal_relay: bool = False
+    arguments: Sequence[str],
+    *,
+    cwd: str | None = None,
+    env: Mapping[str, str] | None = None,
+    stdin: int | IO[bytes] | None = None,
+    stdout: int | IO[bytes] | None = None,
+    stderr: int | None = None,
 ) -> Iterator[subprocess.Popen[bytes]]:
-    """Reap the command and stop its process group before unwinding a build.
+    """Start the command; reap it and stop its processes before unwinding a build.
 
-    Callers create a new process group, retaining the controlling terminal for
-    sudo. Killing only make leaves its compiler children writing after locks
-    have been released or installation rollback has started.
+    Every command but sudo runs in a new process group: killing only make
+    would leave its compiler children writing after locks have been released
+    or installation rollback has started.
+
+    sudo stays in the build's own process group, the terminal's foreground
+    group. With `use_pty` (the Debian and Ubuntu default) sudo compares its
+    group with the terminal's foreground group; from a background group it
+    runs the command in the background of a private pty, where apt's
+    tcsetattr() on the dpkg front end draws SIGTTOU, the command stops, sudo
+    suspends itself, and no shell exists to resume either. In the foreground
+    the password prompt is reachable and the terminal's Ctrl+C reaches sudo,
+    which relays it.
     """
+    sudo = _is_sudo(arguments)
+    process = subprocess.Popen(
+        list(arguments),
+        cwd=cwd,
+        env=env,
+        stdin=stdin,
+        stdout=stdout,
+        stderr=stderr,
+        process_group=None if sudo else 0,
+    )
     try:
         yield process
     except BaseException as original:
         while True:
             try:
-                _terminate_process(process, signal_relay, original)
+                _terminate_process(process, sudo, original)
                 break
             except (KeyboardInterrupt, SignalStop):
                 # A second cancellation must not release locks or start rollback
@@ -222,11 +249,11 @@ class Runner:
     ) -> int:
         """Run a command, log it, and return its status instead of raising.
 
-        Callers that must recover from a failure rather than abort on it — the
-        staged install, which has to restore its backup first — use this
-        directly; `execute` is this plus fail-on-non-zero. `display` replaces
-        the echoed argv on the terminal only, for commands whose arguments are
-        long file lists; the build log still records the complete command.
+        Callers that recover from a failure rather than abort on it (a download
+        that falls back to a mirror, a clone that retries) use this directly;
+        `execute` is this plus fail-on-non-zero. `display` replaces the echoed
+        argv on the terminal only, for commands whose arguments are long file
+        lists; the build log still records the complete command.
         """
         if not arguments:
             raise BuildError("run_logged() called without a command.")
@@ -246,16 +273,12 @@ class Runner:
                     None if self.log_file is None else stack.enter_context(self.log_file.open("ab"))
                 )
                 with managed_process(
-                    subprocess.Popen(
-                        list(arguments),
-                        cwd=working_directory,
-                        env=environment,
-                        stdout=sink,
-                        stderr=None if sink is None else subprocess.STDOUT,
-                        stdin=subprocess.PIPE if stdin_text is not None else None,
-                        process_group=0,
-                    ),
-                    signal_relay=_relays_signals(arguments),
+                    arguments,
+                    cwd=working_directory,
+                    env=environment,
+                    stdout=sink,
+                    stderr=None if sink is None else subprocess.STDOUT,
+                    stdin=subprocess.PIPE if stdin_text is not None else None,
                 ) as process:
                     process.communicate(stdin_text.encode() if stdin_text is not None else None)
                     exit_code = process.wait()
@@ -291,16 +314,12 @@ class Runner:
                 source.write(stdin_text.encode())
                 source.seek(0)
             with managed_process(
-                subprocess.Popen(
-                    list(arguments),
-                    cwd=cwd,
-                    env=dict(environment),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    stdin=source if stdin_text is not None else None,
-                    process_group=0,
-                ),
-                signal_relay=_relays_signals(arguments),
+                arguments,
+                cwd=cwd,
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=source if stdin_text is not None else None,
             ) as process:
                 assert process.stdout is not None
                 output = process.stdout
@@ -355,15 +374,12 @@ class Runner:
         """
         try:
             with managed_process(
-                subprocess.Popen(
-                    list(arguments),
-                    cwd=str(cwd) if cwd is not None else None,
-                    env=self.child_environment(env_overrides),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    stdin=subprocess.PIPE if stdin_text is not None else None,
-                    process_group=0,
-                )
+                arguments,
+                cwd=str(cwd) if cwd is not None else None,
+                env=self.child_environment(env_overrides),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.PIPE if stdin_text is not None else None,
             ) as process:
                 stdout, stderr = process.communicate(
                     stdin_text.encode() if stdin_text is not None else None, timeout=timeout

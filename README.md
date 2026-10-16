@@ -12,10 +12,9 @@ installing the result to `/usr/local`.
 | Ubuntu | 22.04 (jammy), 24.04 (noble) | x86_64 only |
 
 The builder detects the distribution and release itself and selects the
-matching APT package set - a few package names differ between releases
-(for example `libgegl-0.4-0` vs `libgegl-0.4-0t64`, `libcamd2` vs
-`libcamd3`, and `libjxl-dev`, which Ubuntu 22.04 does not package).
-All package operations use the `apt` command.
+matching APT package set (`libjxl-dev`, the JPEG-XL delegate, is the one
+package Ubuntu 22.04 does not ship). All package operations use the `apt`
+command.
 
 Anything else fails up front, before packages are installed or build work
 starts. Builds use `-march=native`, so binaries are tuned for (and may only
@@ -263,7 +262,7 @@ example (Debian 12, static default):
 └────────────────────────────────────────────┘
 
 [INFO] Version: ImageMagick 7.1.2-34 Q16-HDRI x86_64 c5d4ca8a0:20261014 https://imagemagick.org
-[INFO] Link mode: static (coders and workspace delegates linked into magick)
+[INFO] Link mode: static, verified: Features lists no Modules, magick links no libMagick shared object, no coder or filter modules installed
 [INFO] Installation: /usr/local/bin (magick and 12 legacy utilities: animate compare composite conjure convert display identify import magick-script mogrify montage stream)
 [INFO] Features: Cipher DPC HDRI OpenCL OpenMP(4.5)
 [INFO] Delegates (34): bzlib cairo djvu fftw fontconfig fpx freetype gslib gvc heic jbig jng jp2 jpeg jxl lcms lqr ltdl lzma openexr pangocairo png ps raqm raw rsvg tiff webp wmf x xml zip zlib zstd

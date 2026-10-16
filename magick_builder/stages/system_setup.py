@@ -14,14 +14,23 @@ from ..runtime.errors import BuildError
 # script-interface notice is suppressed; diagnostics and exit codes are intact.
 APT_SCRIPT_OPTIONS = ("-o", "APT::Cmd::Disable-Script-Warning=1")
 
-# Delegate-enabling packages, all verified available on every supported
-# release:
+# Every package has a consumer in this build; all are available on every
+# supported release:
+# - The toolchain and build systems the recipes run: build-essential, the
+#   autotools (autoconf, autoconf-archive, automake via libtool, autopoint for
+#   fontconfig's gettext macros, m4), cmake, meson, ninja, gperf (fontconfig),
+#   nasm (libjpeg-turbo's SIMD), git, curl, tar's bzip2 and xz decompressors,
+#   patchelf (stages/self_contained.py rewrites the install's run paths). No
+#   recipe's configure, CMake or meson files probe for bison, flex or intltool.
 # - libdjvulibre/fftw3/lqr/openexr/pango/raw/wmf/zip dev packages light up the
-#   djvu/fftw/lqr/openexr/pangocairo/raw/wmf/zip delegates.
-# - libbz2/libjbig/liblzma/libzstd dev packages make the bzlib/jbig/lzma/zstd
-#   delegates guaranteed instead of depending on transitive installs.
-# - fonts-urw-base35 provides the exact directory --with-urw-base35-font-dir
-#   points at.
+#   djvu/fftw/lqr/openexr/pangocairo/raw/wmf/zip delegates; libglib2.0-dev,
+#   libgraphviz-dev, libheif-dev, librsvg2-dev and the X11 dev packages the
+#   gvc/heic/rsvg/x delegates.
+# - libbz2/libjbig/liblzma/libzstd/zlib1g dev packages make the
+#   bzlib/jbig/lzma/zstd/zlib delegates guaranteed instead of depending on
+#   transitive installs.
+# - fonts-urw-base35 and fonts-dejavu-core provide the exact directories the
+#   font-dir configure options point at.
 # - libgs-dev is the gslib delegate (PostScript and PDF rendered in-process)
 #   and ghostscript the `gs` binary delegates.xml runs for PS/PDF/EPS
 #   conversions. Ghostscript has no supported static library and prefers its
@@ -32,8 +41,9 @@ APT_SCRIPT_OPTIONS = ("-o", "APT::Cmd::Disable-Script-Warning=1")
 #   modules when the workspace libtool is disabled.
 # - ffmpeg is the runtime video delegate (mpeg/mp4/webm coders).
 # - fontconfig-config provides /etc/fonts, which the workspace fontconfig is
-#   compiled to read; patchelf rewrites the install's run paths
-#   (stages/self_contained.py).
+#   compiled to read.
+# - The APT libtool, pkg-config and m4 are the fallbacks for a selection that
+#   disables the workspace builds of them.
 # The legacy libjpeg62* packages are absent with evidence: nothing consumes
 # them (jpeg comes from the workspace libjpeg-turbo), and on Ubuntu 24.04
 # libjpeg62-dev conflicts with the libjpeg-turbo8-dev that libgraphviz-dev needs.
@@ -41,41 +51,27 @@ BASE_PACKAGES = (
     "autoconf",
     "autoconf-archive",
     "autopoint",
-    "binutils",
-    "bison",
     "build-essential",
     "bzip2",
     "cmake",
     "curl",
     "ffmpeg",
-    "flex",
-    "fontforge",
     "fonts-dejavu-core",
     "fontconfig-config",
     "fonts-urw-base35",
     "ghostscript",
     "git",
     "gperf",
-    "intltool",
-    "jq",
     "libbz2-dev",
-    "libc6",
     "libx11-dev",
     "libxext-dev",
     "libxt-dev",
-    "libcpu-features-dev",
     "libdjvulibre-dev",
     "libfftw3-dev",
-    "libfont-ttf-perl",
-    "libgc-dev",
-    "libgc1",
-    "libgegl-common",
-    "libgl2ps-dev",
     "libglib2.0-dev",
     "libgraphviz-dev",
     "libgs-dev",
     "libheif-dev",
-    "libhwy-dev",
     "libjbig-dev",
     "liblqr-1-0-dev",
     "libltdl-dev",
@@ -84,19 +80,11 @@ BASE_PACKAGES = (
     "libpango1.0-dev",
     "libraw-dev",
     "librsvg2-dev",
-    "librust-jpeg-decoder-dev",
-    "librust-malloc-buf-dev",
-    "libsharp-dev",
-    "libticonv-dev",
     "libtool",
     "libtool-bin",
     "libwmf-dev",
-    "libyuv-dev",
-    "libyuv-utils",
-    "libyuv0",
     "libzip-dev",
     "libzstd-dev",
-    "lsb-release",
     "m4",
     "meson",
     "nasm",
@@ -104,9 +92,7 @@ BASE_PACKAGES = (
     "ocl-icd-opencl-dev",
     "patchelf",
     "pkg-config",
-    "python3-dev",
     "xz-utils",
-    "yasm",
     "zlib1g-dev",
 )
 
@@ -117,11 +103,11 @@ BASE_PACKAGES = (
 LEGACY_CONFLICTING_PACKAGES = ("libjpeg62-dev", "libjpeg62-turbo-dev")
 
 # (distribution, major release) -> (codename, release-specific packages, GCC
-# versions in the standard archive). libjxl-dev is not packaged for Ubuntu
-# 22.04, so builds there lack the optional JPEG-XL delegate.
+# versions in the standard archive). libjxl-dev (the jxl delegate) is not
+# packaged for Ubuntu 22.04, so builds there lack the optional JPEG-XL delegate.
 RELEASES: dict[tuple[str, str], tuple[str, tuple[str, ...], tuple[int, ...]]] = {
-    ("Debian", "12"): ("bookworm", ("libjxl-dev", "libgegl-0.4-0", "libcamd2"), (11, 12)),
-    ("Debian", "13"): ("trixie", ("libjxl-dev", "libgegl-0.4-0t64", "libcamd3"), (12, 13, 14)),
+    ("Debian", "12"): ("bookworm", ("libjxl-dev",), (11, 12)),
+    ("Debian", "13"): ("trixie", ("libjxl-dev",), (12, 13, 14)),
     ("Ubuntu", "22"): ("jammy", (), (9, 10, 11, 12)),
     ("Ubuntu", "24"): ("noble", ("libjxl-dev",), (9, 10, 11, 12, 13, 14)),
 }

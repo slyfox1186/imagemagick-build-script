@@ -23,6 +23,7 @@ class Kind(Enum):
     """A font family installed under /usr/share/fonts/truetype."""
 
     APPLICATION = "application"
+    """ImageMagick itself, published to /usr/local."""
 
 
 class Source(Enum):

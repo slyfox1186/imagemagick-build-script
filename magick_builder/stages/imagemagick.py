@@ -281,6 +281,47 @@ def read_policy_record(record: Path) -> str | None:
         return None
 
 
+def needed_libraries(context: BuildContext, path: Path) -> list[str]:
+    """The sonames an installed ELF object loads (its DT_NEEDED entries)."""
+    completed = context.runner.capture(["patchelf", "--print-needed", str(path)])
+    if completed.returncode != 0:
+        raise BuildError(f"patchelf --print-needed {path} failed: {completed.stderr.strip()}")
+    return completed.stdout.split()
+
+
+def installed_modules(magick: Path) -> list[Path]:
+    """The coder and filter modules installed under magick's prefix."""
+    return sorted((magick.parent.parent / "lib").glob("ImageMagick-*/modules-*/*/*.so"))
+
+
+def verify_link_mode(context: BuildContext, report: list[str], magick: Path) -> str:
+    """The evidence that the installed magick has the build's link mode.
+
+    Three independent facts must all agree with the mode: the Features line
+    (`Modules`), the sonames the binary loads (`libMagick*`) and the module
+    directory. Any disagreement is a failed build, not a note.
+    """
+    features = report_field(report, "Features").split()
+    libraries = [
+        soname for soname in needed_libraries(context, magick) if soname.startswith("libMagick")
+    ]
+    modules = installed_modules(magick)
+    facts = [
+        "Features lists Modules" if "Modules" in features else "Features lists no Modules",
+        f"magick links {' and '.join(libraries)}"
+        if libraries
+        else "magick links no libMagick shared object",
+        f"{len(modules)} coder and filter modules in {modules[0].parent.parent}"
+        if modules
+        else "no coder or filter modules installed",
+    ]
+    evidence = ", ".join(facts)
+    observed = ("Modules" in features, bool(libraries), bool(modules))
+    if observed != (context.shared,) * 3:
+        raise BuildError(f"The installed magick is not a {link_mode(context)} build: {evidence}.")
+    return evidence
+
+
 class ImageMagickStage:
     def __init__(self, context: BuildContext) -> None:
         self.context = context
@@ -339,12 +380,7 @@ class ImageMagickStage:
             raise BuildError(
                 f"The installed magick reports a different version than this build ({version})."
             )
-        features = report_field(report, "Features")
-        if ("Modules" in features.split()) != context.shared:
-            raise BuildError(
-                f"The installed magick reports 'Features: {features}', which is not a "
-                f"{link_mode(context)} build."
-            )
+        verify_link_mode(context, report, magick)
 
         delegates_line = report_field(report, "Delegates (built-in)")
         present = set(delegates_line.split())
@@ -618,19 +654,11 @@ def report_success(context: BuildContext) -> None:
     utilities = [
         name for name in LEGACY_UTILITIES if os.access(MAGICK_BINARY.parent / name, os.X_OK)
     ]
-    if context.shared:
-        modules = [
-            entry
-            for entry in read_installed_manifest()
-            if "/modules-" in entry and entry.endswith(".so")
-        ]
-        mode = f"shared ({len(modules)} coder and filter modules loaded on demand)"
-    else:
-        mode = "static (coders and workspace delegates linked into magick)"
+    evidence = verify_link_mode(context, report, MAGICK_BINARY)
 
     logger.banner("ImageMagick build completed successfully")
     logger.info(f"Version: {report_field(report, 'Version')}")
-    logger.info(f"Link mode: {mode}")
+    logger.info(f"Link mode: {link_mode(context)}, verified: {evidence}")
     logger.info(
         f"Installation: {MAGICK_BINARY.parent} (magick and {len(utilities)} legacy utilities: "
         f"{' '.join(utilities)})"

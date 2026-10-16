@@ -1,8 +1,8 @@
 """Failure types shared by every module.
 
 `BuildError` replaces the Bash `fail()` helper. Raising rather than exiting is
-what makes the recovery sites (a staged install that must restore its backup, a
-probe whose failure is expected) expressible at all: Bash had to choose between
+what makes the recovery sites (a download that falls back to a mirror, a probe
+whose failure is expected) expressible at all: Bash had to choose between
 `fail`, which exits, and `warn` plus a return code, which callers could forget
 to check.
 """
