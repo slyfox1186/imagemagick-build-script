@@ -43,7 +43,6 @@ m4 = true  # Macro processor used by Autotools
 pkg-config = true  # Dependency resolver used by every configure probe
 
 # Image format libraries and their delegates
-ghostscript = true  # PostScript/PDF library (gslib delegate)
 libfpx = true  # FlashPix format support (fpx delegate)
 libjpeg-turbo = true  # JPEG encoding/decoding (jpeg delegate; jng with libpng)
 libpng = true  # PNG encoding/decoding (png delegate; jng with libjpeg-turbo)
@@ -59,10 +58,9 @@ harfbuzz = true  # Complex text shaping (needs freetype; required by raqm)
 libxml2 = true  # XML parsing (xml delegate; required by fontconfig)
 raqm = true  # Complex text layout (raqm delegate; needs freetype/fribidi/harfbuzz)
 
-# Color management, memory, and GPU support
+# Color management and memory allocation
 jemalloc = true  # General-purpose memory allocator (--with-jemalloc)
 lcms2 = true  # ICC color management with Little CMS (lcms delegate)
-opencl-sdk = true  # Khronos OpenCL headers and loader (--enable-opencl)
 
 # Font families installed to /usr/share/fonts/truetype (DejaVu comes from
 # the fonts-dejavu-core APT package and is not listed here)

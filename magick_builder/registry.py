@@ -73,7 +73,7 @@ class Package:
 GROUP_TOOLS = "Build tools (disabling one falls back to the APT-installed version)"
 GROUP_IMAGE = "Image format libraries and their delegates"
 GROUP_TEXT = "Text rendering stack"
-GROUP_EXTRA = "Color management, memory, and GPU support"
+GROUP_EXTRA = "Color management and memory allocation"
 GROUP_FONTS = (
     "Font families installed to /usr/share/fonts/truetype (DejaVu comes from\n"
     "# the fonts-dejavu-core APT package and is not listed here)"
@@ -140,6 +140,17 @@ PACKAGE_LIST: tuple[Package, ...] = (
         artifact=("lib", "libjpeg"),
     ),
     Package(
+        "libwebp",
+        "WebP encoding/decoding (webp delegate)",
+        Kind.LIBRARY,
+        GROUP_IMAGE,
+        Source.GIT_TAG,
+        repository="https://chromium.googlesource.com/webm/libwebp",
+        accept=_V_SEMVER,
+        prefix="v",
+        artifact=("lib", "libwebp"),
+    ),
+    Package(
         "libtiff",
         "TIFF encoding/decoding (tiff delegate; needs libjpeg-turbo)",
         Kind.LIBRARY,
@@ -161,16 +172,6 @@ PACKAGE_LIST: tuple[Package, ...] = (
         artifact=("lib", "libfpx"),
     ),
     Package(
-        "ghostscript",
-        "PostScript/PDF library (gslib delegate)",
-        Kind.LIBRARY,
-        GROUP_IMAGE,
-        Source.GIT_TAG,
-        repository="https://github.com/ArtifexSoftware/ghostpdl-downloads.git",
-        accept=r"^gs[0-9]{5}$",
-        artifact=("bin", "gs"),
-    ),
-    Package(
         "libpng",
         "PNG encoding/decoding (png delegate; jng with libjpeg-turbo)",
         Kind.LIBRARY,
@@ -180,17 +181,6 @@ PACKAGE_LIST: tuple[Package, ...] = (
         accept=_V_SEMVER,
         prefix="v",
         artifact=("pc", "libpng16"),
-    ),
-    Package(
-        "libwebp",
-        "WebP encoding/decoding (webp delegate)",
-        Kind.LIBRARY,
-        GROUP_IMAGE,
-        Source.GIT_TAG,
-        repository="https://chromium.googlesource.com/webm/libwebp",
-        accept=_V_SEMVER,
-        prefix="v",
-        artifact=("lib", "libwebp"),
     ),
     Package(
         "freetype",
@@ -267,17 +257,6 @@ PACKAGE_LIST: tuple[Package, ...] = (
         artifact=("pc", "jemalloc"),
     ),
     Package(
-        "opencl-sdk",
-        "Khronos OpenCL headers and loader (--enable-opencl)",
-        Kind.LIBRARY,
-        GROUP_EXTRA,
-        Source.GIT_TAG,
-        repository="https://github.com/KhronosGroup/OpenCL-SDK.git",
-        accept=r"^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}$",
-        prefix="v",
-        artifact=("lib", "libOpenCL"),
-    ),
-    Package(
         "openjpeg",
         "JPEG 2000 encoding/decoding (jp2 delegate)",
         Kind.LIBRARY,
@@ -330,6 +309,13 @@ PACKAGES: dict[str, Package] = {package.key: package for package in PACKAGE_LIST
 PACKAGE_NAMES: tuple[str, ...] = tuple(PACKAGES)
 FONT_PACKAGES: tuple[str, ...] = tuple(p.key for p in PACKAGE_LIST if p.kind is Kind.FONT)
 
+# Keys earlier releases accepted, with where the component comes from now, so
+# an old config file fails with the reason instead of "unsupported key".
+REMOVED_PACKAGES: dict[str, str] = {
+    "ghostscript": "Ghostscript comes from the APT packages ghostscript and libgs-dev",
+    "opencl-sdk": "OpenCL comes from the APT package ocl-icd-opencl-dev",
+}
+
 
 @dataclass(frozen=True)
 class Delegate:
@@ -350,7 +336,6 @@ DELEGATES: tuple[Delegate, ...] = (
     Delegate("libpng", "png", "png"),
     Delegate("libwebp", "webp", "webp"),
     Delegate("libfpx", "fpx", "fpx"),
-    Delegate("ghostscript", "gslib", "gslib"),
     Delegate("freetype", "freetype", "freetype"),
     Delegate("fontconfig", "fontconfig", "fontconfig"),
     Delegate("raqm", "raqm", "raqm"),
@@ -360,8 +345,10 @@ DELEGATES: tuple[Delegate, ...] = (
     Delegate("jemalloc", "jemalloc", ""),
 )
 
-# Delegates the APT baseline guarantees whatever the selection.
-BASELINE_DELEGATES = ("bzlib", "gvc", "heic", "jbig", "lzma", "rsvg", "zlib", "zstd")
+# Delegates the APT baseline guarantees whatever the selection. gslib is the
+# system libgs: ImageMagick renders PostScript and PDF through it in-process
+# and runs the `gs` binary only for PS/PDF/EPS conversions.
+BASELINE_DELEGATES = ("bzlib", "gslib", "gvc", "heic", "jbig", "lzma", "rsvg", "zlib", "zstd")
 
 
 @dataclass(frozen=True)

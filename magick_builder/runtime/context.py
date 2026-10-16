@@ -21,7 +21,7 @@ from .git import GitCloner
 from .logging import Logger, format_duration
 from .paths import path_is_within, safe_remove_tree
 from .state import is_valid_version, read_marker, write_marker
-from .versions import Resolved, VersionResolver, ghostscript_version
+from .versions import Resolved, VersionResolver
 
 FONT_ROOT = Path("/usr/share/fonts/truetype")
 MAGICK_BINARY = Path("/usr/local/bin/magick")
@@ -41,13 +41,15 @@ def resolve_upstream(resolver: VersionResolver, key: str) -> Resolved | None:
     )
     if resolved is None:
         return None
-    if key == "ghostscript":
-        version = ghostscript_version(resolved.tag)
-        return None if version is None else Resolved(resolved.tag, version, resolved.commit)
     if key == "freetype":
         # Tags use dashes (VER-2-14-3); the recorded version is dotted.
         return Resolved(resolved.tag, resolved.version.replace("-", "."), resolved.commit)
     return resolved
+
+
+def link_mode(context: BuildContext) -> str:
+    """The word the logs, the context record and the closing report use."""
+    return "shared" if context.shared else "static"
 
 
 class BuildContext:
@@ -63,6 +65,7 @@ class BuildContext:
         selection: Selection,
         build_threads: int,
         latest: bool,
+        shared: bool = False,
         gcc_version: int | None = None,
     ) -> None:
         self.repo_root = repo_root
@@ -75,6 +78,9 @@ class BuildContext:
         self.selection = selection
         self.build_threads = build_threads
         self.latest = latest
+        # Static by default: every workspace library is an archive linked into
+        # magick. `--shared` builds shared libraries and coder modules instead.
+        self.shared = shared
         self.requested_gcc_version = gcc_version
 
         # Filled in by the system setup stage.
@@ -83,9 +89,6 @@ class BuildContext:
         self.release_codename = ""
         self.gcc_version = 0
         self.multiarch = "x86_64-linux-gnu"
-        # Set once the ImageMagick stage has validated and displayed the
-        # installed binary, so the closing report does not repeat it.
-        self.magick_validated = False
 
         self.packages_built = 0
         self.packages_already_built = 0

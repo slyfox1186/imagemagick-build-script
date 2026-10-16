@@ -43,6 +43,7 @@ class Arguments:
         self.jobs: int | None = None
         self.gcc_version: int | None = None
         self.latest = False
+        self.shared = False
         self.debug = False
         self.config_path: str | None = None
 
@@ -67,6 +68,8 @@ def parse_arguments(argv: list[str]) -> Arguments:
             arguments.cleanup = True
         elif argument in ("-l", "--latest"):
             arguments.latest = True
+        elif argument in ("-s", "--shared"):
+            arguments.shared = True
         elif argument in ("-d", "--debug"):
             arguments.debug = True
         elif option in ("-j", "--jobs"):

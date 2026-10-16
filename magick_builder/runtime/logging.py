@@ -132,6 +132,18 @@ def format_duration(total: int) -> str:
     return f"{total}s"
 
 
+def format_size(total: int) -> str:
+    """Bytes in decimal units, as desktop file managers report them."""
+    if total < 1000:
+        return f"{total} B"
+    value = float(total)
+    for unit in ("kB", "MB", "GB"):
+        value /= 1000
+        if value < 999.95:
+            return f"{value:.1f} {unit}"
+    return f"{value / 1000:.1f} TB"
+
+
 # A fragment is (text, style name, bold); style names index the Palette.
 # Fragments render back to back; `_spaced` puts a separator between words.
 Fragment = tuple[str, str, bool]

@@ -12,7 +12,65 @@ from pathlib import Path
 
 from ..runtime.context import BuildContext
 from ..runtime.paths import safe_remove_tree
-from .helpers import cmake_release_options, each_define, meson_static_install, ninja_install
+from .helpers import (
+    autotools_link_options,
+    cmake_link_options,
+    cmake_release_options,
+    each_define,
+    meson_install,
+    ninja_install,
+)
+
+# libxml2 modules no consumer reaches: ImageMagick's svg and msl coders use
+# the push parser with SAX1 callbacks, policy.c and profile.c xmlReadMemory,
+# and fontconfig the same push parser. PUSH, SAX1, THREADS, ICONV, OUTPUT,
+# VALID and CATALOG stay at their defaults.
+LIBXML2_UNUSED_MODULES = (
+    "DEBUG",
+    "HTML",
+    "MODULES",
+    "PATTERN",
+    "PROGRAMS",
+    "PYTHON",
+    "READER",
+    "REGEXPS",
+    "RELAXNG",
+    "SCHEMAS",
+    "TESTS",
+    "WRITER",
+    "XINCLUDE",
+    "XPATH",
+)
+# Everything HarfBuzz can build beyond the shaping library raqm links: the
+# subset, raster, vector and GPU libraries, the utilities, and the optional
+# backends. glib and gobject must stay off: enabling them adds a glib Requires
+# to the workspace harfbuzz.pc, which drags the system -L directory into
+# consumers' link resolution, and raqm then resolved the older system
+# libharfbuzz.so instead of the workspace library.
+HARFBUZZ_DISABLED_FEATURES = (
+    "benchmark",
+    "cairo",
+    "chafa",
+    "docs",
+    "fontations",
+    "glib",
+    "gobject",
+    "gpu",
+    "gpu_demo",
+    "graphite2",
+    "harfrust",
+    "icu",
+    "introspection",
+    "kbts",
+    "png",
+    "raster",
+    "subset",
+    "tests",
+    "utilities",
+    "vector",
+    "wasm",
+    "zlib",
+)
 
 
 def ensure_harfbuzz_gobject_shim(context: BuildContext, version: str) -> None:
@@ -93,30 +151,33 @@ def install_text_libraries(context: BuildContext) -> None:
         # generated archives omit.
         source = context.clone("freetype", resolved, recurse=True)
         context.execute(["sh", "autogen.sh"], cwd=source)
-        meson_static_install(
+        # zlib=internal keeps gzip-compressed fonts readable through the
+        # bundled inflate; `disabled` would drop the support outright. png is
+        # colour bitmap glyphs, which ImageMagick never requests
+        # (annotate.c loads grayscale and mono bitmaps only); harfbuzz would
+        # need the two-pass build or a run-time-loaded shared HarfBuzz.
+        meson_install(
             context,
             source,
-            *each_define("-D", "disabled", "harfbuzz", "png", "bzip2", "brotli", "zlib", "tests"),
+            "-Dzlib=internal",
+            *each_define("-D", "disabled", "harfbuzz", "png", "bzip2", "brotli", "tests"),
         )
         context.build_done("freetype", resolved.version, resolved.commit)
 
     resolved = context.resolve("libxml2")
     if resolved and context.build("libxml2", resolved.version):
         source = context.clone("libxml2", resolved)
-        # A pure CMake build. ImageMagick needs no libxml2 Python bindings, and
-        # probing python3.x-config is a hard failure on Ubuntu 22.04, so they
-        # are pinned off regardless of upstream defaults.
         context.execute(
             [
                 "cmake",
                 "-B",
                 "build",
                 *cmake_release_options(context),
-                "-DBUILD_SHARED_LIBS=OFF",
+                *cmake_link_options(context),
                 # The default XML catalog path is compiled into ImageMagick;
                 # the workspace one is deleted with the build root.
                 "-DCMAKE_INSTALL_SYSCONFDIR=/etc",
-                "-DLIBXML2_WITH_PYTHON=OFF",
+                *each_define("-DLIBXML2_WITH_", "OFF", *LIBXML2_UNUSED_MODULES),
                 *libiconv_cmake_options(context),
                 "-G",
                 "Ninja",
@@ -130,36 +191,30 @@ def install_text_libraries(context: BuildContext) -> None:
     resolved = context.resolve("fontconfig")
     if resolved and context.build("fontconfig", resolved.version):
         source = context.clone("fontconfig", resolved)
-        # The static libxml2 needs LIBXML_STATIC in every consumer's flags.
-        template = source / "fontconfig.pc.in"
-        template.write_text(
-            template.read_text(encoding="utf-8").replace("Cflags:", "Cflags: -DLIBXML_STATIC"),
-            encoding="utf-8",
-        )
+        # autotools, not meson: fontconfig's meson build needs meson 1.6.1 and
+        # Ubuntu 22.04 ships 0.61. No --with-arch: a forced architecture names
+        # cache files `-x86_64.cache-N` while the system fc-cache writes
+        # `-le64`, so the library could never read the caches the fonts stage
+        # builds.
         context.execute(["sh", "autogen.sh", "--noconf"], cwd=source)
-        multiarch = context.multiarch
         context.execute(
             [
                 "sh",
                 "configure",
                 f"--prefix={context.workspace}",
+                *autotools_link_options(context),
                 "--disable-docbook",
                 "--disable-docs",
-                "--disable-shared",
                 "--disable-nls",
                 "--enable-iconv",
                 "--enable-libxml2",
-                "--enable-static",
-                "--with-arch=x86_64",
-                "--with-libiconv-prefix=/usr",
-                "--with-pic",
                 # Configuration, templates and cache locations are compiled into
                 # ImageMagick: use the system's, which outlive the build root.
                 "--sysconfdir=/etc",
                 "--localstatedir=/var",
                 "--with-templatedir=/usr/share/fontconfig/conf.avail",
-                f"CFLAGS={env['CFLAGS']} -I/usr/include -I/usr/include/libxml2",
-                f"LDFLAGS={env['LDFLAGS']} -DLIBXML_STATIC -L/usr/lib/{multiarch} -lz -llzma",
+                f"CFLAGS={env['CFLAGS']}",
+                f"LDFLAGS={env['LDFLAGS']}",
             ],
             cwd=source,
         )
@@ -173,7 +228,7 @@ def install_text_libraries(context: BuildContext) -> None:
             f"https://github.com/fribidi/fribidi/archive/refs/tags/{resolved.tag}.tar.gz",
             f"fribidi-{resolved.version}.tar.gz",
         )
-        meson_static_install(context, source, *each_define("-D", "false", "docs", "tests"))
+        meson_install(context, source, *each_define("-D", "false", "bin", "docs", "tests"))
         context.build_done("fribidi", resolved.version, resolved.commit)
 
     resolved = context.resolve("harfbuzz")
@@ -182,25 +237,13 @@ def install_text_libraries(context: BuildContext) -> None:
             f"https://github.com/harfbuzz/harfbuzz/archive/refs/tags/{resolved.tag}.tar.gz",
             f"harfbuzz-{resolved.version}.tar.gz",
         )
-        # glib/gobject must stay disabled: enabling them adds a glib Requires to
-        # the workspace harfbuzz.pc, which drags the system -L directory into
-        # consumers' link resolution, and raqm then resolved the older system
-        # libharfbuzz.so instead of the workspace static library.
-        meson_static_install(
+        # freetype is explicit so a missing workspace FreeType fails here
+        # instead of silently building the shaper without its font functions.
+        meson_install(
             context,
             source,
-            *each_define(
-                "-D",
-                "disabled",
-                "benchmark",
-                "cairo",
-                "docs",
-                "glib",
-                "gobject",
-                "icu",
-                "introspection",
-                "tests",
-            ),
+            "-Dfreetype=enabled",
+            *each_define("-D", "disabled", *HARFBUZZ_DISABLED_FEATURES),
         )
         context.build_done("harfbuzz", resolved.version, resolved.commit)
     if resolved:
@@ -212,7 +255,5 @@ def install_text_libraries(context: BuildContext) -> None:
             f"https://codeload.github.com/host-oman/libraqm/tar.gz/refs/tags/{resolved.tag}",
             f"raqm-{resolved.version}.tar.gz",
         )
-        meson_static_install(
-            context, source, f"--includedir={context.workspace}/include", "-Ddocs=false"
-        )
+        meson_install(context, source, *each_define("-D", "false", "docs", "sheenbidi", "tests"))
         context.build_done("raqm", resolved.version, resolved.commit)

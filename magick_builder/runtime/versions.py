@@ -93,17 +93,6 @@ def select_listed_release(listing: str) -> str | None:
     return newest(_LISTED_RELEASE.findall(listing))
 
 
-def ghostscript_version(tag: str) -> str | None:
-    """`gs10071` means 10.07.1; the zero padding is part of the tarball name.
-
-    The grammar is pinned to exactly five digits: a future six-digit tag would
-    sort wrongly against five-digit ones, so it fails closed for a deliberate
-    update instead.
-    """
-    match = re.fullmatch(r"gs([0-9]{2})([0-9]{2})([0-9])", tag)
-    return f"{match.group(1)}.{match.group(2)}.{match.group(3)}" if match else None
-
-
 class VersionResolver:
     """Queries upstream tag lists and release indexes."""
 

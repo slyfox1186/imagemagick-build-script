@@ -179,8 +179,9 @@ def assert_safe_build_root(candidate: Path, repository_root: Path) -> None:
 # --------------------------------------------------------------------------
 
 # Every input that changes what -march=native and the selected compiler
-# produce. `package_selection` is recorded only while a config file is active,
-# so a full build keeps the record it always had.
+# produce, plus the link mode, which decides whether each workspace library is
+# an archive or a shared object. `package_selection` is recorded only while a
+# config file is active, so a full build keeps the record it always had.
 CONTEXT_FIELDS = (
     "os",
     "arch",
@@ -191,6 +192,7 @@ CONTEXT_FIELDS = (
     "cxxflags",
     "cppflags",
     "ldflags",
+    "link_mode",
     "package_selection",
     "recipe",
 )

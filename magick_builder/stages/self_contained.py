@@ -1,15 +1,17 @@
 """Make the staged ImageMagick install independent of the build root.
 
 libtool writes the workspace library directory into the run path of every
-object it links, and ImageMagick links some workspace libraries as shared
-objects (jemalloc, libfpx, libpng, ...). An install built that way works only
-while the build root exists: `--cleanup` deleted it and left magick unable to
-start (libjemalloc.so.2 not found) and silently loading older system copies of
-the rest. Before publication, every workspace library the install loads is
-copied into BUNDLED_LIBRARY_DIRECTORY, a private directory that only these
-objects' run paths name, so the system's own copies are never shadowed; every
-build-root run path entry is removed; and the libtool, pkg-config, *-config
-and Perl metadata stop naming build-root paths.
+object it links, and a `--shared` build links the workspace libraries as
+shared objects (jemalloc, libfpx, libpng, ...). An install built that way
+works only while the build root exists: `--cleanup` deleted it and left magick
+unable to start (libjemalloc.so.2 not found) and silently loading older system
+copies of the rest. Before publication, every workspace library the install
+loads is copied into BUNDLED_LIBRARY_DIRECTORY, a private directory that only
+these objects' run paths name, so the system's own copies are never shadowed;
+every build-root run path entry is removed; and the libtool, pkg-config,
+*-config and Perl metadata stop naming build-root paths. The static default
+links the workspace archives in, so it bundles nothing, and `assert_static`
+refuses a tree that still carries shared objects.
 """
 
 from __future__ import annotations
@@ -76,10 +78,18 @@ class SelfContainedInstall:
         return Path(path).is_absolute() and path_is_within(path, self.root)
 
     def _staged_library_path(self) -> str:
+        """Where ldd resolves a staged object's libraries: the staged tree, the
+        bundle, then the workspace, whose libraries the objects were linked
+        against even when their run path does not say so (meson installs
+        libraqm without one, and the system has a libharfbuzz.so.0 too)."""
+        workspace = self.context.workspace
         directories = [
             self.staging / "usr/local/lib",
             self.staging / "usr/local/lib64",
             self.bundle_directory,
+            workspace / "lib",
+            workspace / "lib64",
+            workspace / "lib" / self.context.multiarch,
         ]
         return ":".join(str(directory) for directory in directories)
 
@@ -111,7 +121,7 @@ class SelfContainedInstall:
 
     # -- the transformation ----------------------------------------------
 
-    def apply(self) -> None:
+    def apply(self) -> dict[str, Path]:
         bundled = self.bundle_workspace_libraries()
         self.rewrite_run_paths(set(bundled))
         self.clean_metadata()
@@ -120,6 +130,33 @@ class SelfContainedInstall:
             self.context.logger.info(
                 f"Bundled {len(bundled)} workspace libraries into {BUNDLED_LIBRARY_DIRECTORY}: "
                 + " ".join(sorted(bundled))
+            )
+        return bundled
+
+    def assert_static(self, bundled: dict[str, Path]) -> None:
+        """A static build bundles nothing, ships no libMagick objects or modules."""
+        problems = [f"workspace library {soname} was bundled" for soname in sorted(bundled)]
+        library = self.staging / "usr/local/lib"
+        problems += [
+            f"{path.relative_to(self.staging)} is a shared library"
+            for path in sorted(library.glob("libMagick*.so*"))
+        ]
+        problems += [
+            f"{path.relative_to(self.staging)} holds coder modules"
+            for path in sorted(library.glob("ImageMagick-*/modules-*"))
+            if any(path.rglob("*"))
+        ]
+        for path in elf_files(self.staging / "usr"):
+            needed = [
+                soname
+                for soname in self._patchelf("--print-needed", str(path)).split()
+                if soname.startswith("libMagick")
+            ]
+            if needed:
+                problems.append(f"{path.relative_to(self.staging)} needs {' '.join(needed)}")
+        if problems:
+            raise BuildError(
+                "The static build produced a shared install:\n" + "\n".join(problems[:40])
             )
 
     def bundle_workspace_libraries(self) -> dict[str, Path]:
@@ -175,7 +212,10 @@ class SelfContainedInstall:
         """
         root = re.escape(str(self.root))
         build_flag = re.compile(rf"\s+-[LI]{root}/\S*")
-        workspace_pkg_config = str(self.context.workspace / "bin/pkg-config")
+        # The workspace pkg-config or the static build's wrapper around it.
+        workspace_pkg_config = re.compile(
+            re.escape(str(self.context.workspace / "bin")) + r"/(magick-)?pkg-config"
+        )
         for path in _regular_files(self.staging / "usr"):
             if _starts_with(path, ELF_MAGIC) or _starts_with(path, AR_MAGIC):
                 continue
@@ -194,7 +234,7 @@ class SelfContainedInstall:
                     line.removeprefix(str(self.staging)) for line in text.splitlines(True)
                 )
             elif path.name.endswith("-config"):
-                cleaned = build_flag.sub("", text.replace(workspace_pkg_config, "pkg-config"))
+                cleaned = build_flag.sub("", workspace_pkg_config.sub("pkg-config", text))
             else:
                 continue
             path.write_text(cleaned, encoding="utf-8")

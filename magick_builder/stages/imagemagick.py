@@ -14,7 +14,8 @@ import tempfile
 from pathlib import Path
 
 from .. import registry
-from ..runtime.context import MAGICK_BINARY, BuildContext
+from ..runtime import shellquote
+from ..runtime.context import MAGICK_BINARY, BuildContext, link_mode
 from ..runtime.errors import BuildError
 from ..runtime.paths import safe_remove_tree
 from ..runtime.state import CONFIGURE_FINGERPRINT_SUFFIX, publish_atomically
@@ -29,14 +30,33 @@ from .self_contained import (
 # Revision 2: configure is no longer regenerated with autoreconf, which had
 # baked this repository's Git commit into ImageMagick's version string.
 # Revision 3: the install bundles its workspace libraries and no longer
-# depends on the build root (see self_contained.py).
-RECIPE_REVISION = "3"
+# depends on the build root (see self_contained.py). Revision 4: the link mode
+# decides the install's layout, and the manifest prunes everything the
+# previous install left under /usr/local.
+RECIPE_REVISION = "4"
 MANIFEST_DIRECTORY = "usr/local/share/imagemagick-build-script"
 MANIFEST_FILE = f"{MANIFEST_DIRECTORY}/manifest.txt"
 POLICY_FILE = "usr/local/etc/ImageMagick-7/policy.xml"
 # The digest of the default policy this builder last published: a later publish
 # replaces an untouched default but never an administrator's edited policy.
 POLICY_RECORD = f"{MANIFEST_DIRECTORY}/policy.sha256"
+# What --enable-legacy-support installs beside magick.
+LEGACY_UTILITIES = (
+    "animate",
+    "compare",
+    "composite",
+    "conjure",
+    "convert",
+    "display",
+    "identify",
+    "import",
+    "magick-script",
+    "mogrify",
+    "montage",
+    "stream",
+)
+# One row of `magick -list format`: name, module, then the r/w/+ mode column.
+_FORMAT_ROW = re.compile(r"^\s*\S+\s+\S+\s+([r-])([w-])[+-]\s")
 
 
 def toggle_arguments(context: BuildContext) -> list[str]:
@@ -79,6 +99,86 @@ def pkg_config_command(context: BuildContext) -> str:
     return found
 
 
+STATIC_PKG_CONFIG_NAME = "magick-pkg-config"
+# The wrapper configure runs in static mode. `--static` makes pkg-config add
+# Libs.private, which the workspace archives need on the link line
+# (libsharpyuv behind libwebp, the codecs behind libtiff, zlib behind libpng).
+# It must not apply to the system delegates: their private dependencies are
+# shared libraries whose development packages are not installed (libzip names
+# -lssl -lcrypto), and a missing one fails every later configure link test.
+# ImageMagick's configure also ignores <PROBE>_LIBS overrides, so the switch
+# happens where pkg-config is called, per module list.
+_STATIC_PKG_CONFIG_TEMPLATE = """\
+#!/bin/sh
+# Written by the ImageMagick stage of imagemagick-build-script.
+# Adds --static when every requested module's .pc file lives in the workspace.
+real={real}
+workspace={workspace}
+static=--static
+for argument in "$@"; do
+    case $argument in
+    -*) continue ;;
+    esac
+    directories=$("$real" --variable=pcfiledir "$argument" 2>/dev/null) || {{ static=; break; }}
+    for directory in $directories; do
+        case $directory in
+        "$workspace"/*) ;;
+        *) static=; break 2 ;;
+        esac
+    done
+done
+exec "$real" $static "$@"
+"""
+
+
+def static_pkg_config(context: BuildContext) -> Path:
+    return context.workspace / "bin" / STATIC_PKG_CONFIG_NAME
+
+
+def write_static_pkg_config(context: BuildContext) -> Path:
+    """Write the wrapper into the workspace; it is deleted with the build root."""
+    wrapper = static_pkg_config(context)
+    wrapper.parent.mkdir(parents=True, exist_ok=True)
+    wrapper.write_text(
+        _STATIC_PKG_CONFIG_TEMPLATE.format(
+            real=shellquote.quote(pkg_config_command(context)),
+            workspace=shellquote.quote(str(context.workspace)),
+        ),
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    return wrapper
+
+
+def link_mode_arguments(context: BuildContext) -> list[str]:
+    """The arguments that differ between the static default and `--shared`.
+
+    Static: the coders are compiled into libMagickCore (`--with-modules` under
+    `--disable-shared` is only a warned no-op), and `--with-perl` would build a
+    separate statically linked Perl interpreter and install no Image::Magick
+    module, so PerlMagick exists only in the shared build. libfpx is C++ and
+    ImageMagick links with the C driver, so the runtime is named here.
+    """
+    if context.shared:
+        return [
+            "--enable-shared",
+            "--enable-static",
+            "--with-modules",
+            "--with-perl",
+            f"PKG_CONFIG={pkg_config_command(context)}",
+        ]
+    arguments = [
+        "--disable-shared",
+        "--enable-static",
+        "--without-modules",
+        "--without-perl",
+        f"PKG_CONFIG={static_pkg_config(context)}",
+    ]
+    if context.package_enabled("libfpx"):
+        arguments.append("LIBS=-lstdc++")
+    return arguments
+
+
 def configure_arguments(context: BuildContext) -> list[str]:
     """ImageMagick's configure arguments.
 
@@ -87,41 +187,38 @@ def configure_arguments(context: BuildContext) -> list[str]:
     fftw defaults to no. `--with-pkgconfigdir` is absent because upstream's
     Makefile.am overrides it, and `--enable-delegate-build` is absent because it
     means in-tree delegate builds, which this external workspace is not.
+    `--enable-hugepages` is absent because its one effect is a MAP_HUGETLB
+    attempt before every large mapping, which fails on hosts without reserved
+    huge pages. OpenCL comes from the APT ICD loader (see system_setup).
+    `--with-wmf` is explicit because its default is `$build_modules`, which
+    would silently drop the delegate from the static build.
     """
     env = context.env
-    cflags, cxxflags, cppflags = env["CFLAGS"], env["CXXFLAGS"], env["CPPFLAGS"]
-    if context.package_enabled("opencl-sdk"):
-        opencl = "--enable-opencl"
-        cflags += " -DCL_TARGET_OPENCL_VERSION=300"
-        cxxflags += " -DCL_TARGET_OPENCL_VERSION=300"
-        cppflags += f" -I{context.workspace}/include/CL"
-    else:
-        opencl = "--disable-opencl"
+    opencl_target = " -DCL_TARGET_OPENCL_VERSION=300"
     return [
         "--prefix=/usr/local",
         "--enable-hdri",
-        "--enable-hugepages",
         "--enable-legacy-support",
-        opencl,
+        "--enable-opencl",
         "--with-fftw",
         "--with-fontpath=/usr/share/fonts/truetype",
         "--with-dejavu-font-dir=/usr/share/fonts/truetype/dejavu",
         "--with-gs-font-dir=/usr/share/fonts/ghostscript",
+        "--with-gslib",
         "--with-urw-base35-font-dir=/usr/share/fonts/type1/urw-base35",
         "--with-gvc",
         "--with-heic",
-        "--with-modules",
-        "--with-perl",
         "--with-pic",
         "--with-quantum-depth=16",
         "--with-rsvg",
         "--with-utilities",
+        "--with-wmf",
         "--without-autotrace",
         *toggle_arguments(context),
-        f"CFLAGS={cflags}",
-        f"CXXFLAGS={cxxflags}",
-        f"CPPFLAGS={cppflags}",
-        f"PKG_CONFIG={pkg_config_command(context)}",
+        *link_mode_arguments(context),
+        f"CFLAGS={env['CFLAGS']}{opencl_target}",
+        f"CXXFLAGS={env['CXXFLAGS']}{opencl_target}",
+        f"CPPFLAGS={env['CPPFLAGS']}",
     ]
 
 
@@ -134,6 +231,14 @@ def reported_version_matches(line: str, version: str) -> bool:
     return f"ImageMagick {version} " in f"{line} "
 
 
+def report_field(report: list[str], name: str) -> str:
+    """The value of a `magick -version` line such as `Features: ...`, which magick
+    ends with a space."""
+    return next(
+        (line.split(": ", 1)[1].strip() for line in report if line.startswith(f"{name}: ")), ""
+    )
+
+
 def read_installed_manifest() -> list[str]:
     """The entries the previous publish recorded, or none when it left no readable record."""
     try:
@@ -143,41 +248,37 @@ def read_installed_manifest() -> list[str]:
 
 
 def stale_entries(previous: list[str], current: list[str]) -> list[str]:
-    """Files the previous publish installed that this one does not, where they still matter.
+    """Files the previous publish installed under /usr/local that this one does not.
 
     ImageMagick loads every coder module in its versioned module directory, so a
-    module left by a build with more delegates keeps a disabled format working.
-    Only the private library bundle and the versioned trees this install also
-    populates are pruned: a public library such as an older libMagickCore soname
-    stays for whatever links it.
+    module left by a build with more delegates keeps a disabled format working,
+    and a static build must not leave the shared libraries, modules and bundled
+    workspace libraries of the build it replaces. Only manifest-recorded files
+    are candidates: a library nobody else installed under /usr/local is never
+    touched, and the policy is always among the staged entries.
     """
     kept = set(current)
-    bundle = f"{BUNDLED_LIBRARY_DIRECTORY.relative_to('/')}/"
-    trees = {
-        Path(entry).parts[:4] for entry in current if entry.startswith("usr/local/lib/ImageMagick-")
-    }
     return [
         entry
         for entry in previous
-        if entry not in kept
-        and ".." not in Path(entry).parts
-        and (entry.startswith(bundle) or Path(entry).parts[:4] in trees)
+        if entry not in kept and entry.startswith("usr/local/") and ".." not in Path(entry).parts
     ]
 
 
-def policy_is_customized(installed: Path, record: Path) -> bool:
-    """True unless the live policy is the default this builder last published.
-
-    Without a record (an install from before it was kept) an existing policy
-    cannot be shown to be unmodified, so it counts as customized.
-    """
-    if not installed.exists() and not installed.is_symlink():
-        return False
+def file_digest(path: Path) -> str | None:
+    """The sha256 of a file, or None when it is absent or unreadable."""
     try:
-        digest = hashlib.sha256(installed.read_bytes()).hexdigest()
-        return digest != record.read_text(encoding="utf-8").strip()
+        return hashlib.sha256(path.read_bytes()).hexdigest()
     except OSError:
-        return True
+        return None
+
+
+def read_policy_record(record: Path) -> str | None:
+    """The digest of the default policy the previous publish installed, if recorded."""
+    try:
+        return record.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
 
 
 class ImageMagickStage:
@@ -234,18 +335,18 @@ class ImageMagickStage:
         if completed.returncode != 0:
             raise BuildError(f"Cannot execute {magick} -version.")
         report = completed.stdout.splitlines()
-        self.logger.blank()
-        for line in report:
-            if line.startswith(("Version", "Features", "Delegates")):
-                self.logger.magick(line)
         if not any(reported_version_matches(line, version) for line in report):
             raise BuildError(
                 f"The installed magick reports a different version than this build ({version})."
             )
+        features = report_field(report, "Features")
+        if ("Modules" in features.split()) != context.shared:
+            raise BuildError(
+                f"The installed magick reports 'Features: {features}', which is not a "
+                f"{link_mode(context)} build."
+            )
 
-        delegates_line = next(
-            (line.split(": ", 1)[-1] for line in report if line.startswith("Delegates")), ""
-        )
+        delegates_line = report_field(report, "Delegates (built-in)")
         present = set(delegates_line.split())
         missing = [token for token in required_delegates(context) if token not in present]
         if missing:
@@ -271,18 +372,6 @@ class ImageMagickStage:
         if config_script.exists() and runner.capture([str(config_script), "--cflags"]).returncode:
             raise BuildError(f"{config_script} --cflags fails.")
 
-        policy = runner.capture([str(magick), "identify", "-list", "policy"])
-        policy_path = next(
-            (
-                line.split(": ", 1)[1].strip()
-                for line in policy.stdout.splitlines()
-                if line.startswith("Path:") and ": " in line
-            ),
-            "unknown",
-        )
-        self.logger.blank()
-        self.logger.info(f"Security policy: {policy_path} (details: magick identify -list policy)")
-
         smoke = Path(tempfile.mkdtemp(prefix=".smoke.", dir=context.cwd))
         context.register_temporary_path(smoke)
         formats = [
@@ -306,7 +395,6 @@ class ImageMagickStage:
             safe_remove_tree(smoke, context.cwd)
             context.unregister_temporary_path(smoke)
         self.logger.info(f"Functional smoke test passed ({' -> '.join(steps)}).")
-        context.magick_validated = True
 
     # -- publication -----------------------------------------------------
 
@@ -326,12 +414,31 @@ class ImageMagickStage:
         if staged_policy.is_file():
             digest = hashlib.sha256(staged_policy.read_bytes()).hexdigest()
             publish_atomically(staging / POLICY_RECORD, f"{digest}\n")
-            if policy_is_customized(Path("/", POLICY_FILE), Path("/", POLICY_RECORD)):
-                excluded.append(f"--exclude={POLICY_FILE}")
-                self.logger.warn(
-                    f"Keeping the customized /{POLICY_FILE}; "
-                    f"this release's default is {staged_policy}."
-                )
+            installed = Path("/", POLICY_FILE)
+            installed_digest = file_digest(installed)
+            if installed_digest != digest and (installed.exists() or installed.is_symlink()):
+                recorded = read_policy_record(Path("/", POLICY_RECORD))
+                if recorded is not None and recorded == installed_digest:
+                    self.logger.info(
+                        f"Replacing the untouched default /{POLICY_FILE} with this "
+                        "release's default."
+                    )
+                else:
+                    excluded.append(f"--exclude={POLICY_FILE}")
+                    if recorded is None:
+                        # An install from before the record existed: the policy
+                        # may be an older default or an edit, so it is kept.
+                        # Every publish writes the record, so this happens once.
+                        self.logger.warn(
+                            "No record of the previously installed default policy; keeping "
+                            f"the existing /{POLICY_FILE}. This release's default is at "
+                            f"{staged_policy}."
+                        )
+                    else:
+                        self.logger.info(
+                            f"Keeping your edited /{POLICY_FILE}; this release's default "
+                            f"policy is at {staged_policy}."
+                        )
         entries = [
             str(path.relative_to(staging))
             for path in (staging / "usr").rglob("*")
@@ -431,6 +538,8 @@ class ImageMagickStage:
         if build_directory.exists():
             safe_remove_tree(build_directory, source)
         build_directory.mkdir()
+        if not context.shared:
+            write_static_pkg_config(context)
         context.execute(["sh", "../configure", *arguments], cwd=build_directory)
         context.make(build_directory)
 
@@ -438,7 +547,10 @@ class ImageMagickStage:
         if staging.exists() or staging.is_symlink():
             safe_remove_tree(staging, context.packages)
         context.execute(["make", f"DESTDIR={staging}", "install"], cwd=build_directory)
-        SelfContainedInstall(context, staging).apply()
+        self_contained = SelfContainedInstall(context, staging)
+        bundled = self_contained.apply()
+        if not context.shared:
+            self_contained.assert_static(bundled)
         self.validate_staged_install(staging, version)
         published = self.publish(staging)
         context.sudo("ldconfig")
@@ -473,12 +585,58 @@ class ImageMagickStage:
             marker.unlink(missing_ok=True)
 
 
-def report_installed_version(context: BuildContext) -> None:
-    """The one-line summary when this run did not build and validate ImageMagick."""
-    if context.magick_validated or not context.package_enabled("imagemagick"):
+def report_success(context: BuildContext) -> None:
+    """The closing summary, read from the installed binary's own capabilities."""
+    logger = context.logger
+    if not context.package_enabled("imagemagick"):
+        logger.banner("Dependency build completed successfully")
         return
-    completed = context.runner.capture([str(MAGICK_BINARY), "-version"])
-    if completed.returncode != 0:
-        raise BuildError(f"Failure to execute the command: {MAGICK_BINARY} -version")
-    context.logger.blank()
-    context.logger.magick(completed.stdout.split("\n", 1)[0])
+
+    def ask(*arguments: str) -> str:
+        completed = context.runner.capture([str(MAGICK_BINARY), *arguments], timeout=60)
+        if completed.returncode != 0:
+            raise BuildError(
+                f"Failure to execute the command: {MAGICK_BINARY} {' '.join(arguments)}"
+            )
+        return completed.stdout
+
+    report = ask("-version").splitlines()
+    delegates = report_field(report, "Delegates (built-in)").split()
+    formats = [
+        match for line in ask("-list", "format").splitlines() if (match := _FORMAT_ROW.match(line))
+    ]
+    readable = sum(1 for match in formats if match.group(1) == "r")
+    writable = sum(1 for match in formats if match.group(2) == "w")
+    policy = next(
+        (
+            line.split(": ", 1)[1].strip()
+            for line in ask("identify", "-list", "policy").splitlines()
+            if line.startswith("Path:") and ": " in line
+        ),
+        "unknown",
+    )
+    utilities = [
+        name for name in LEGACY_UTILITIES if os.access(MAGICK_BINARY.parent / name, os.X_OK)
+    ]
+    if context.shared:
+        modules = [
+            entry
+            for entry in read_installed_manifest()
+            if "/modules-" in entry and entry.endswith(".so")
+        ]
+        mode = f"shared ({len(modules)} coder and filter modules loaded on demand)"
+    else:
+        mode = "static (coders and workspace delegates linked into magick)"
+
+    logger.banner("ImageMagick build completed successfully")
+    logger.info(f"Version: {report_field(report, 'Version')}")
+    logger.info(f"Link mode: {mode}")
+    logger.info(
+        f"Installation: {MAGICK_BINARY.parent} (magick and {len(utilities)} legacy utilities: "
+        f"{' '.join(utilities)})"
+    )
+    logger.info(f"Features: {report_field(report, 'Features')}")
+    logger.info(f"Delegates ({len(delegates)}): {' '.join(delegates)}")
+    logger.info(f"Formats: {readable} readable, {writable} writable")
+    logger.info(f"Security policy: {policy} (details: magick identify -list policy)")
+    logger.info(f"Install manifest: /{MANIFEST_FILE}")

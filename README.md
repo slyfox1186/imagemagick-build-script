@@ -46,7 +46,7 @@ python3 build-magick.py --build
 
 ```text
 
-ImageMagick Build Script 3.0.0
+ImageMagick Build Script 3.1.0
 Usage: build-magick.py [options]
 
 Actions:
@@ -60,6 +60,7 @@ Options:
   -j, --jobs <count>          Set parallel build jobs (default: available CPUs)
   -g, --gcc-version <9-14>    GCC major version (default: newest for this OS)
   -l, --latest                Refresh upstream versions and rebuild outdated packages
+  -s, --shared                Build shared libraries and coder modules (default: static)
   -d, --debug                 Stream command output while also logging it
 
 Long options also accept --option=value (for example: --jobs=8).
@@ -70,6 +71,7 @@ Environment:
 Examples:
   python3 build-magick.py --build
   python3 build-magick.py --build --latest --jobs 8 --gcc-version 13
+  python3 build-magick.py --build --shared
   python3 build-magick.py --build --config ./custom.toml
 
 
@@ -77,6 +79,28 @@ Examples:
 
 `--help` and `--version` are side-effect free: they create nothing, touch
 nothing, never prompt for sudo, and never create an environment.
+
+### Link mode: static by default, `--shared` on request
+
+The default build is **static**: every library built from source (libpng,
+libtiff, libjpeg-turbo, libwebp, the text stack, OpenJPEG, Little CMS,
+jemalloc, libfpx, libltdl) is an archive linked into `magick` and the other
+utilities, the coders are compiled into `libMagickCore`, and nothing under
+`/usr/local/lib` is a shared object of this build. Only the distribution's own
+libraries (librsvg, libheif, graphviz, pango, cairo, glib, X11, fftw, libgs,
+the OpenCL ICD loader, glibc) are loaded at run time, which is why the binary
+is not a fully static executable: Debian and Ubuntu ship no static archives
+for those delegates. `libMagickCore-7.*.a`, `libMagickWand-7.*.a` and
+`MagickCore.pc` are installed for programs that link ImageMagick.
+
+`--shared` builds what releases before 3.1 built: shared `libMagickCore` and
+`libMagickWand`, coder modules loaded on demand, and the workspace libraries
+bundled into `/usr/local/lib/imagemagick-build-script`. It is also the only
+mode that installs PerlMagick (`Image::Magick`): with static libraries,
+upstream builds a separate statically linked Perl interpreter instead of the
+module, so the static build passes `--without-perl`. Switching modes rebuilds
+every package once, because every workspace library is built differently, and
+the install replaces the other mode's files through the manifest.
 
 ### GCC versions
 
@@ -117,7 +141,13 @@ generated from the package registry, and the linter keeps the two identical.
   stack needs freetype/fribidi/harfbuzz, fontconfig needs
   freetype/libxml2, libtiff needs libjpeg-turbo).
 - The APT baseline is not configurable: system-package delegates (heic,
-  rsvg, gvc, bzlib, ...) are always installed.
+  rsvg, gvc, gslib, bzlib, ...) and the OpenCL ICD loader are always
+  installed. Ghostscript and OpenCL are deliberately not built from source:
+  ImageMagick renders PostScript and PDF through the system `libgs` and runs
+  the system `gs` for conversions, and on Linux it loads the system
+  `libOpenCL.so` at run time whatever it was linked against. A config file
+  that still names the old `ghostscript` or `opencl-sdk` keys fails with
+  that explanation.
 - The active selection is recorded in the build context, so changing it
   automatically invalidates completed work - no manual cleanup needed.
 
@@ -160,19 +190,22 @@ All state lives under `./build/` (override with `BUILD_ROOT=/path`):
   the build user). Only after the staged tree validates is it published
   to `/usr/local` in a single privileged copy - upstream's install recipe
   never runs as root. The installed file list is recorded at
-  `/usr/local/share/imagemagick-build-script/manifest.txt`; files the
-  previous install put in ImageMagick's own module tree or private library
-  directory that this one no longer has are removed, so a disabled delegate's
-  old coder module cannot keep loading.
+  `/usr/local/share/imagemagick-build-script/manifest.txt`; every file the
+  previous install recorded there that this one no longer has is removed, so
+  a disabled delegate's old coder module cannot keep loading and a switch
+  between the static and shared modes leaves no stale libraries, modules or
+  bundled copies behind. Files nobody recorded in the manifest are never
+  touched.
 - The published install never depends on the build root, so `--cleanup`
-  cannot break it. Before publication, every workspace shared library it
-  loads (jemalloc, libfpx, ...) is copied into
+  cannot break it. The static default links the workspace libraries in; a
+  `--shared` build copies every workspace shared library it loads into
   `/usr/local/lib/imagemagick-build-script`, a private directory only
   ImageMagick's run paths name, so the system's own copies are never
   shadowed. Build-root run paths are removed with `patchelf`, and the
   libtool, pkg-config, `*-config` and Perl records stop naming the build
   root. fontconfig and libxml2 are compiled to read the system's `/etc` and
-  `/var`.
+  `/var`. A static build that still carries a shared library, a coder module
+  or a bundled workspace library is refused before publication.
 - Every build command runs with an allowlisted environment, so a Conda or
   virtual environment cannot leak compilers, flags, or library paths into
   the native builds, and upstream build systems cannot discover this
@@ -193,8 +226,11 @@ The build installs upstream's default (open) security policy and prints the
 active policy at the end of the build. If you process untrusted images,
 install a stricter policy - see
 <https://imagemagick.org/script/security-policy.php>. Rebuilds keep an
-edited `/usr/local/etc/ImageMagick-7/policy.xml` and only replace a policy
-that is still the default this builder installed.
+edited `/usr/local/etc/ImageMagick-7/policy.xml` (reported as an `[INFO]`
+line naming where this release's default was staged) and only replace a
+policy that is still the default this builder installed. An install made by
+a release that kept no record of its default is kept too, with one warning;
+every later publish records the digest, so the warning never repeats.
 
 ## What "success" means
 
@@ -204,24 +240,49 @@ The builder only reports success after the installed `/usr/local/bin/magick`:
 2. contains every delegate this project exists to provide
    (bzlib, fontconfig, freetype, fpx, gslib, gvc, heic, jbig, jng, jp2,
    jpeg, lcms, lzma, png, raqm, rsvg, tiff, webp, xml, zlib, zstd),
-3. exposes a resolvable `MagickCore.pc` under `/usr/local/lib/pkgconfig`
+3. reports the requested link mode (`Modules` in its feature list only for a
+   `--shared` build),
+4. exposes a resolvable `MagickCore.pc` under `/usr/local/lib/pkgconfig`
    and a working `MagickCore-config`,
-4. loads every library of every installed program, library and module
+5. loads every library of every installed program, library and module
    from outside the build root,
-5. completes a real conversion round-trip (`logo:` -> PNG -> WebP).
+6. completes a real conversion round-trip (`logo:` -> PNG -> WebP).
 
 Selections that disable PNG or WebP test only the enabled formats; a selection
 with both disabled tests ImageMagick's native MIFF format.
 
-A validated build reports, for example:
+A validated build closes with a report read from the installed binary, for
+example (Debian 12, static default):
 
 ```text
-[MAGICK] Version: ImageMagick 7.1.2-31 Q16-HDRI x86_64 8309dc92a:20260903 https://imagemagick.org
-[MAGICK] Features: Cipher DPC HDRI Modules OpenCL OpenMP(4.5)
-[MAGICK] Delegates (built-in): bzlib cairo djvu fftw fontconfig fpx freetype gslib gvc heic jbig jng jp2 jpeg jxl lcms lqr ltdl lzma openexr pangocairo png ps raqm raw rsvg tiff webp wmf x xml zip zlib zstd
-
-[INFO] Security policy: /usr/local/etc/ImageMagick-7/policy.xml (details: magick identify -list policy)
 [INFO] Functional smoke test passed (logo: -> PNG -> WebP).
+[DONE] imagemagick 7.1.2-34 built in 53s
+
+┌────────────────────────────────────────────┐
+│  ImageMagick build completed successfully  │
+└────────────────────────────────────────────┘
+
+[INFO] Version: ImageMagick 7.1.2-34 Q16-HDRI x86_64 c5d4ca8a0:20261014 https://imagemagick.org
+[INFO] Link mode: static (coders and workspace delegates linked into magick)
+[INFO] Installation: /usr/local/bin (magick and 12 legacy utilities: animate compare composite conjure convert display identify import magick-script mogrify montage stream)
+[INFO] Features: Cipher DPC HDRI OpenCL OpenMP(4.5)
+[INFO] Delegates (34): bzlib cairo djvu fftw fontconfig fpx freetype gslib gvc heic jbig jng jp2 jpeg jxl lcms lqr ltdl lzma openexr pangocairo png ps raqm raw rsvg tiff webp wmf x xml zip zlib zstd
+[INFO] Formats: 265 readable, 202 writable
+[INFO] Security policy: /usr/local/etc/ImageMagick-7/policy.xml (details: magick identify -list policy)
+[INFO] Install manifest: /usr/local/share/imagemagick-build-script/manifest.txt
+[INFO] Build log: /home/user/imagemagick-build-script/build/build.log
+```
+
+The cleanup prompt that follows lists what a "yes" deletes, with sizes:
+
+```text
+[INFO] Cleanup will free 1.7 GB by deleting:
+         build/           1.7 GB  Downloaded sources, compiled libraries and the build log
+         3 cache folders  1.1 MB  Temporary files, safe to delete
+       Your installed ImageMagick and its settings are not affected.
+       Answering "no" keeps build/ and makes the next build faster.
+
+[PROMPT] Delete these folders? (yes/no):
 ```
 
 Platform difference: the optional JPEG-XL (`jxl`) delegate is absent on

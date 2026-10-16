@@ -12,7 +12,7 @@ diffs the two byte for byte.
 
 from __future__ import annotations
 
-SCRIPT_VERSION = "3.0.0"
+SCRIPT_VERSION = "3.1.0"
 SCRIPT_NAME = "build-magick.py"
 
 LABEL_WIDTH = 27
@@ -28,6 +28,7 @@ OPTIONS = (
     ("-j, --jobs <count>", "Set parallel build jobs (default: available CPUs)"),
     ("-g, --gcc-version <9-14>", "GCC major version (default: newest for this OS)"),
     ("-l, --latest", "Refresh upstream versions and rebuild outdated packages"),
+    ("-s, --shared", "Build shared libraries and coder modules (default: static)"),
     ("-d, --debug", "Stream command output while also logging it"),
 )
 ENVIRONMENT = (("BUILD_ROOT=/path", "Override the default ./build directory"),)
@@ -65,6 +66,7 @@ def usage_text() -> str:
         "Examples:",
         "  python3 " + SCRIPT_NAME + " --build",
         "  python3 " + SCRIPT_NAME + " --build --latest --jobs 8 --gcc-version 13",
+        "  python3 " + SCRIPT_NAME + " --build --shared",
         "  python3 " + SCRIPT_NAME + " --build --config ./custom.toml",
         "",
     ]

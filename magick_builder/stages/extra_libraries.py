@@ -1,9 +1,19 @@
-"""jemalloc, the OpenCL SDK, OpenJPEG and Little CMS."""
+"""jemalloc, OpenJPEG and Little CMS.
+
+OpenCL is not here: ImageMagick dlopens the system libOpenCL.so at run time
+whatever it was linked against, so the APT ocl-icd-opencl-dev package provides
+both the headers configure probes and the library that is actually loaded.
+"""
 
 from __future__ import annotations
 
 from ..runtime.context import BuildContext
-from .helpers import cmake_release_options, configure_make_install, each_define, ninja_install
+from .helpers import (
+    cmake_release_options,
+    configure_make_install,
+    each_define,
+    ninja_install,
+)
 
 
 def install_extra_libraries(context: BuildContext) -> None:
@@ -16,49 +26,22 @@ def install_extra_libraries(context: BuildContext) -> None:
             f"https://github.com/jemalloc/jemalloc/archive/refs/tags/{resolved.tag}.tar.gz",
             f"jemalloc-{resolved.version}.tar.gz",
         )
+        # The GitHub archive ships no configure. Statistics, debugging and
+        # fill support are run-time-off features that still cost code; the
+        # malloc_stats_print probe ImageMagick runs survives --disable-stats.
+        # A shared libjemalloc is dlopened through PerlMagick's module, which
+        # its default initial-exec TLS model cannot survive ("cannot allocate
+        # memory in static TLS block"); the static default links it in.
         context.execute(["sh", "autogen.sh"], cwd=source)
         configure_make_install(
             context,
             source,
-            *(
-                f"--disable-{feature}"
-                for feature in ("debug", "doc", "fill", "log", "prof", "stats")
-            ),
-            "--enable-autogen",
-            "--enable-static",
-            "--enable-xmalloc",
+            *(f"--disable-{feature}" for feature in ("debug", "doc", "fill", "stats")),
+            *(["--disable-initial-exec-tls"] if context.shared else []),
             f"CFLAGS={env['CFLAGS']}",
+            libtool=False,
         )
         context.build_done("jemalloc", resolved.version, resolved.commit)
-
-    resolved = context.resolve("opencl-sdk")
-    if resolved and context.build("opencl-sdk", resolved.version):
-        source = context.clone("opencl-sdk", resolved, recurse=True)
-        context.execute(
-            [
-                "cmake",
-                "-S",
-                ".",
-                "-B",
-                "build",
-                *cmake_release_options(context, pic="true"),
-                "-DBUILD_SHARED_LIBS=OFF",
-                *each_define("-DBUILD_", "OFF", "DOCS", "EXAMPLES", "TESTING"),
-                *each_define("-DOPENCL_SDK_", "OFF", "BUILD_SAMPLES", "TEST_SAMPLES"),
-                f"-DCMAKE_C_FLAGS={env['CFLAGS']}",
-                f"-DCMAKE_CXX_FLAGS={env['CXXFLAGS']}",
-                "-DOPENCL_HEADERS_BUILD_CXX_TESTS=OFF",
-                "-DOPENCL_ICD_LOADER_BUILD_SHARED_LIBS=OFF",
-                "-DOPENCL_SDK_BUILD_OPENGL_SAMPLES=OFF",
-                "-DTHREADS_PREFER_PTHREAD_FLAG=ON",
-                "-G",
-                "Ninja",
-                "-Wno-dev",
-            ],
-            cwd=source,
-        )
-        ninja_install(context, source)
-        context.build_done("opencl-sdk", resolved.version, resolved.commit)
 
     resolved = context.resolve("openjpeg")
     if resolved and context.build("openjpeg", resolved.version):
@@ -66,14 +49,16 @@ def install_extra_libraries(context: BuildContext) -> None:
             f"https://codeload.github.com/uclouvain/openjpeg/tar.gz/refs/tags/{resolved.tag}",
             f"openjpeg-{resolved.version}.tar.gz",
         )
+        shared, static = ("ON", "OFF") if context.shared else ("OFF", "ON")
         context.execute(
             [
                 "cmake",
                 "-B",
                 "build",
-                *cmake_release_options(context, pic="true"),
-                "-DBUILD_CODEC=OFF",
-                *each_define("-DBUILD_", "OFF", "SHARED_LIBS", "TESTING", "THIRDPARTY"),
+                *cmake_release_options(context),
+                f"-DBUILD_SHARED_LIBS={shared}",
+                f"-DBUILD_STATIC_LIBS={static}",
+                *each_define("-DBUILD_", "OFF", "CODEC", "DOC", "TESTING"),
                 "-G",
                 "Ninja",
                 "-Wno-dev",
@@ -89,6 +74,9 @@ def install_extra_libraries(context: BuildContext) -> None:
             f"https://github.com/mm2/Little-CMS/archive/refs/tags/{resolved.tag}.tar.gz",
             f"lcms2-{resolved.version}.tar.gz",
         )
+        # No plugins: the threaded and fast-float plugins are GPL-3 and
+        # lcms2.pc would put them on the public link line while ImageMagick
+        # never activates a plugin. jpeg and tiff only feed the lcms utilities.
         context.execute(["sh", "autogen.sh"], cwd=source)
-        configure_make_install(context, source, "--with-pic", "--with-threaded")
+        configure_make_install(context, source, "--without-jpeg", "--without-tiff")
         context.build_done("lcms2", resolved.version, resolved.commit)

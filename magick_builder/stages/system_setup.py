@@ -22,8 +22,14 @@ APT_SCRIPT_OPTIONS = ("-o", "APT::Cmd::Disable-Script-Warning=1")
 #   delegates guaranteed instead of depending on transitive installs.
 # - fonts-urw-base35 provides the exact directory --with-urw-base35-font-dir
 #   points at.
-# - ghostscript provides the runtime `gs` binary: delegates.xml shells out to it
-#   for PDF/PS work, and the workspace-built gs is deleted with the build tree.
+# - libgs-dev is the gslib delegate (PostScript and PDF rendered in-process)
+#   and ghostscript the `gs` binary delegates.xml runs for PS/PDF/EPS
+#   conversions. Ghostscript has no supported static library and prefers its
+#   bundled copies of the image libraries, so it is never built from source.
+# - ocl-icd-opencl-dev provides CL/cl.h for configure and the libOpenCL.so
+#   that ImageMagick dlopens at run time to reach the vendor ICDs (it never
+#   calls the library it links); libltdl-dev backs that dlopen and the coder
+#   modules when the workspace libtool is disabled.
 # - ffmpeg is the runtime video delegate (mpeg/mp4/webm coders).
 # - fontconfig-config provides /etc/fonts, which the workspace fontconfig is
 #   compiled to read; patchelf rewrites the install's run paths
@@ -72,6 +78,7 @@ BASE_PACKAGES = (
     "libhwy-dev",
     "libjbig-dev",
     "liblqr-1-0-dev",
+    "libltdl-dev",
     "liblzma-dev",
     "libopenexr-dev",
     "libpango1.0-dev",
@@ -94,6 +101,7 @@ BASE_PACKAGES = (
     "meson",
     "nasm",
     "ninja-build",
+    "ocl-icd-opencl-dev",
     "patchelf",
     "pkg-config",
     "python3-dev",
@@ -222,10 +230,14 @@ def configure_environment(context: BuildContext) -> None:
             "CXX": "g++",
             "CFLAGS": "-O3 -fPIC -pipe -march=native -fstack-protector-strong",
             "CXXFLAGS": "-O3 -fPIC -pipe -march=native -fstack-protector-strong",
+            # Fortification level 3 needs GCC 12 and glibc 2.34, which every
+            # supported release has; -U first because Ubuntu's gcc predefines
+            # the level. --as-needed stays a separate -Wl argument: libtool
+            # reorders combined ones.
             "CPPFLAGS": f"-I{workspace}/include -I/usr/local/include -I/usr/include "
-            "-D_FORTIFY_SOURCE=2",
+            "-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3",
             "LDFLAGS": f"-L{workspace}/lib64 -L{workspace}/lib -Wl,-O1 -Wl,--as-needed "
-            "-Wl,-rpath,/usr/local/lib64:/usr/local/lib",
+            "-Wl,-z,relro -Wl,-z,now -Wl,-rpath,/usr/local/lib64:/usr/local/lib",
             "GIT_CEILING_DIRECTORIES": str(context.cwd),
         }
     )

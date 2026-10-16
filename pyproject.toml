@@ -1,6 +1,6 @@
 [project]
 name = "imagemagick-build-script"
-version = "3.0.0"
+version = "3.1.0"
 description = "Builds ImageMagick and its dependencies from source on Debian and Ubuntu"
 requires-python = ">=3.12"
 dependencies = []

@@ -118,6 +118,11 @@ def load_config(config_file: Path, logger: Logger) -> LoadedConfig:
                 raise UsageError(f"Unsupported '[build]' key '{key}' at {location}.")
             settings.latest = value
         else:
+            if key in registry.REMOVED_PACKAGES:
+                raise UsageError(
+                    f"'[packages]' key '{key}' at {location} is no longer built from source: "
+                    f"{registry.REMOVED_PACKAGES[key]}. Remove the line."
+                )
             if key not in registry.PACKAGES:
                 raise UsageError(f"Unsupported '[packages]' key '{key}' at {location}.")
             explicit[key] = value

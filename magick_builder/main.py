@@ -18,16 +18,17 @@ from .cli import (
     usage_text,
 )
 from .config import BuildSettings, Selection, load_config
-from .runtime.context import BuildContext
+from .runtime.context import BuildContext, link_mode
 from .runtime.errors import ISSUE_TRACKER_URL, REPOSITORY_URL, BuildError, SignalStop, UsageError
 from .runtime.exec import Runner, base_environment, notify_failure
-from .runtime.logging import Logger, format_duration
+from .runtime.logging import Logger, format_duration, format_size
 from .runtime.paths import (
     DirectoryLock,
     canonicalize,
     is_exclusive_regular_file,
     remove_tree_one_filesystem,
     safe_remove_tree,
+    tree_size,
 )
 from .runtime.settings import MAX_PROCESS_INTEGER, parse_integer
 from .runtime.state import (
@@ -47,7 +48,7 @@ from .stages.core_tools import install_core_tools
 from .stages.extra_libraries import install_extra_libraries
 from .stages.fonts import install_fonts
 from .stages.image_libraries import install_image_libraries
-from .stages.imagemagick import ImageMagickStage, report_installed_version
+from .stages.imagemagick import ImageMagickStage, report_success
 from .stages.system_setup import SystemSetup, configure_environment
 from .stages.text_libraries import install_text_libraries
 from .usage import metadata_response
@@ -90,10 +91,83 @@ def validate_request(selection: Selection) -> None:
         raise UsageError(f"Invalid build request:\n - {listed}")
 
 
+def _counted(count: int, noun: str) -> str:
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def _combined_size(paths: list[Path]) -> int | None:
+    total = 0
+    for path in paths:
+        size = tree_size(path)
+        if size is None:
+            return None
+        total += size
+    return total
+
+
+def _folder_label(path: Path, repository: Path) -> str:
+    return f"{path.relative_to(repository) if path.is_relative_to(repository) else path}/"
+
+
+def cleanup_summary(repository: Path, build_root: Path | None, leftovers: list[Path]) -> str:
+    """What a yes to the cleanup prompt deletes, one row per kind with its size.
+
+    One row per kind, so an old build folder holding gigabytes never hides
+    behind a count of kilobyte caches.
+    """
+    old_roots = [
+        path
+        for path in leftovers
+        if path.parent == repository and path.name in LEGACY_BUILD_ROOT_NAMES
+    ]
+    caches = [path for path in leftovers if path not in old_roots]
+    rows: list[tuple[str, list[Path], str]] = []
+    if build_root is not None:
+        rows.append(
+            (
+                _folder_label(build_root, repository),
+                [build_root],
+                "Downloaded sources, compiled libraries and the build log",
+            )
+        )
+    rows.extend(
+        (_folder_label(path, repository), [path], "Old build folder from an earlier version")
+        for path in old_roots
+    )
+    if caches:
+        rows.append(
+            (_counted(len(caches), "cache folder"), caches, "Temporary files, safe to delete")
+        )
+
+    sizes = [_combined_size(paths) for _label, paths, _description in rows]
+    shown = ["" if size is None else format_size(size) for size in sizes]
+    label_width = max(len(label) for label, _paths, _description in rows)
+    size_width = max(len(text) for text in shown)
+    lines = [
+        f"  {label:<{label_width}}  {text:>{size_width}}  {description}"
+        for (label, _paths, description), text in zip(rows, shown, strict=True)
+    ]
+    known = [size for size in sizes if size is not None]
+    header = (
+        f"Cleanup will free {format_size(sum(known))} by deleting:"
+        if len(known) == len(sizes)
+        else "Cleanup will delete:"
+    )
+    lines.append("Your installed ImageMagick and its settings are not affected.")
+    if build_root is not None:
+        lines.append(
+            f'Answering "no" keeps {_folder_label(build_root, repository)} and makes the next '
+            "build faster."
+        )
+    return "\n".join([header, *lines])
+
+
 # Bump when a workspace package's recipe changes what it compiles in, so
 # existing build trees rebuild. Revision 2: fontconfig and libxml2 read the
-# system's /etc and /var instead of the workspace's.
-WORKSPACE_RECIPE_REVISION = "2"
+# system's /etc and /var instead of the workspace's. Revision 3: every library
+# follows the link mode, libwebp precedes libtiff, and the recipes were
+# re-audited against upstream's documented options.
+WORKSPACE_RECIPE_REVISION = "3"
 
 
 class Orchestrator:
@@ -217,6 +291,7 @@ class Orchestrator:
             "cxxflags": env["CXXFLAGS"],
             "cppflags": env["CPPFLAGS"],
             "ldflags": env["LDFLAGS"],
+            "link_mode": link_mode(context),
             "recipe": WORKSPACE_RECIPE_REVISION,
         }
         if context.selection.has_config:
@@ -311,12 +386,10 @@ class Orchestrator:
         leftovers = self._leftover_artifacts()
         if not root.exists():
             self.logger.info(f"Build root does not exist; nothing to clean: '{root}'.")
-            if (
-                leftovers
-                and sys.stdin.isatty()
-                and self._ask(f"Remove {len(leftovers)} build leftover(s) in the checkout?")
-            ):
-                self._remove_leftovers(leftovers)
+            if leftovers and sys.stdin.isatty():
+                self.logger.info(cleanup_summary(canonicalize(self.repo_root), None, leftovers))
+                if self._ask("Delete these folders?"):
+                    self._remove_leftovers(leftovers)
             return
         resolved = canonicalize(root)
         assert_safe_build_root(resolved, self.repo_root)
@@ -338,11 +411,8 @@ class Orchestrator:
                 self.logger.info(f"Non-interactive session; build files preserved: '{resolved}'.")
                 self.logger.hint(f"Remove them later with: python3 {SCRIPT_NAME} --cleanup")
                 return
-            question = f"Remove all build files under '{resolved}'"
-            if leftovers:
-                question += f" and {len(leftovers)} build leftover(s) in the checkout"
-            answer = self._ask(f"{question}?")
-            if not answer:
+            self.logger.info(cleanup_summary(canonicalize(self.repo_root), resolved, leftovers))
+            if not self._ask("Delete these folders?"):
                 self.logger.info(f"Build files preserved: '{resolved}'.")
                 return
             try:
@@ -412,6 +482,7 @@ class Orchestrator:
             selection=selection,
             build_threads=threads,
             latest=arguments.latest or settings.latest,
+            shared=arguments.shared,
             gcc_version=arguments.gcc_version,
         )
         return self.context
@@ -433,6 +504,10 @@ class Orchestrator:
         self.logger.banner(f"ImageMagick Build Script {SCRIPT_VERSION}")
         self.logger.info(f"Build root: {context.cwd}")
         self.logger.info(f"Parallel jobs: {context.build_threads}")
+        self.logger.info(
+            f"Link mode: {link_mode(context)} "
+            + ("(--shared)" if context.shared else "(default; --shared builds shared libraries)")
+        )
         selected = len(context.selection.enabled_names())
         self.logger.info(f"Selected packages: {selected} of {len(registry.PACKAGE_NAMES)}")
         self.logger.info("Completed packages are reused; 'already built' does not mean disabled.")
@@ -450,8 +525,7 @@ class Orchestrator:
         install_fonts(context)
         ImageMagickStage(context).run()
 
-        report_installed_version(context)
-        self.logger.blank()
+        report_success(context)
         if context.packages_disabled:
             self.logger.info(f"Disabled packages: {context.packages_disabled}")
         self.logger.info(f"Build log: {context.log_file}")

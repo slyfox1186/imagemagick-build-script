@@ -33,15 +33,16 @@ def install_core_tools(context: BuildContext) -> None:
     resolved = context.resolve("m4")
     if resolved and context.build("m4", resolved.version):
         source = gnu_download(context, f"m4/m4-{resolved.version}.tar.xz")
-        configure_make_install(context, source, "--enable-c++", "--enable-threads=posix")
+        configure_make_install(context, source, library=False)
         context.build_done("m4", resolved.version)
 
     version = libtool_version(context.operating_system, context.release_version)
     if context.build("libtool", version):
         source = gnu_download(context, f"libtool/libtool-{version}.tar.xz")
-        # The workspace m4 when it was built, otherwise the APT copy.
+        # The workspace m4 when it was built, otherwise the APT copy. libltdl
+        # follows the link mode: ImageMagick needs it for OpenCL and modules.
         m4 = workspace / "bin/m4" if context.package_enabled("m4") else "m4"
-        configure_make_install(context, source, "--with-pic", f"M4={m4}")
+        configure_make_install(context, source, f"M4={m4}")
         context.build_done("libtool", version)
 
     resolved = context.resolve("pkg-config")
@@ -50,7 +51,6 @@ def install_core_tools(context: BuildContext) -> None:
             f"https://pkgconfig.freedesktop.org/releases/pkg-config-{resolved.version}.tar.gz"
         )
         context.execute(["autoconf"], cwd=source)
-        cppflags = context.env["CPPFLAGS"]
         ldflags = context.env["LDFLAGS"]
         iconv_options: list[str] = []
         # A GNU libiconv in /usr/local must supply headers and library together,
@@ -61,19 +61,25 @@ def install_core_tools(context: BuildContext) -> None:
             for directory in ("lib", "lib64")
             for suffix in ("a", "so")
         ):
-            cppflags = (
-                f"-I{workspace}/include -I/usr/local/include -I/usr/include -D_FORTIFY_SOURCE=2"
-            )
             ldflags += " -L/usr/local/lib64 -L/usr/local/lib"
             iconv_options.append("--with-libiconv=gnu")
+        # The system paths are the multiarch ones, as Debian configures its own
+        # pkg-config: otherwise `-L/usr/lib/<multiarch>` from a system
+        # library's private dependencies lands on ImageMagick's link line
+        # ahead of the workspace directories and -l resolves to the system
+        # shared libraries (observed: Debian 12's HarfBuzz instead of ours).
+        multiarch = context.multiarch
         configure_make_install(
             context,
             source,
             "--with-internal-glib",
             *iconv_options,
-            f"--with-pc-path={workspace_pkg_config_dirs(workspace, context.multiarch)}",
+            f"--with-pc-path={workspace_pkg_config_dirs(workspace, multiarch)}",
+            f"--with-system-include-path=/usr/include/{multiarch}:/usr/include",
+            f"--with-system-library-path=/usr/lib/{multiarch}:/usr/lib:/lib/{multiarch}:/lib",
             f"CFLAGS={context.env['CFLAGS']}",
-            f"CPPFLAGS={cppflags}",
+            f"CPPFLAGS={context.env['CPPFLAGS']}",
             f"LDFLAGS={ldflags}",
+            library=False,
         )
         context.build_done("pkg-config", resolved.version)
