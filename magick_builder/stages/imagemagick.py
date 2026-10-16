@@ -253,14 +253,14 @@ class ImageMagickStage:
         context = self.context
         manifest_directory = staging / MANIFEST_DIRECTORY
         manifest_directory.mkdir(parents=True, exist_ok=True)
-        entries = sorted(
+        entries = [
             str(path.relative_to(staging))
             for path in (staging / "usr").rglob("*")
             if path.is_symlink() or path.is_file()
-        )
+        ]
         manifest = f"{MANIFEST_DIRECTORY}/manifest.txt"
-        entries.append(manifest)
-        publish_atomically(staging / manifest, "\n".join(sorted(entries)) + "\n")
+        entries = sorted([*entries, manifest])
+        publish_atomically(staging / manifest, "\n".join(entries) + "\n")
 
         archive = context.packages / "imagemagick-install.tar"
         context.register_temporary_path(archive)
@@ -292,7 +292,6 @@ class ImageMagickStage:
     def run(self) -> None:
         context = self.context
         if not context.package_enabled("imagemagick"):
-            context.packages_disabled += 1
             self.logger.info(
                 "imagemagick is disabled by the package selection config; the dependency "
                 "build is complete."

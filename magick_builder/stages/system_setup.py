@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 from ..runtime.context import BuildContext
@@ -256,9 +257,23 @@ class SystemSetup:
         self.logger = context.logger
         self.runner = context.runner
 
-    def apt_package_installed(self, package: str) -> bool:
-        completed = self.runner.capture(["dpkg-query", "-W", "-f=${Status}", package])
-        return completed.returncode == 0 and "ok installed" in completed.stdout
+    def installed_packages(self, packages: Sequence[str]) -> set[str]:
+        """The members of `packages` that dpkg reports installed, in one query.
+
+        dpkg-query exits non-zero when any name is unknown yet still lists the
+        known ones, so its status is not consulted. A query that fails outright
+        leaves every package treated as missing, which costs only a redundant
+        `apt install`.
+        """
+        completed = self.runner.capture(
+            ["dpkg-query", "-W", "-f=${Package}\t${Status}\n", *packages]
+        )
+        installed: set[str] = set()
+        for line in completed.stdout.splitlines():
+            name, _, status = line.partition("\t")
+            if "ok installed" in status:
+                installed.add(name)
+        return installed
 
     def apt_package_available(self, package: str) -> bool:
         return self.runner.probe(["apt", *APT_SCRIPT_OPTIONS, "show", package])
@@ -283,7 +298,8 @@ class SystemSetup:
         anything is installed. Nothing is ever removed as "no longer needed": that
         would be unrelated host mutation.
         """
-        missing = [package for package in packages if not self.apt_package_installed(package)]
+        installed = self.installed_packages([*packages, *LEGACY_CONFLICTING_PACKAGES])
+        missing = [package for package in packages if package not in installed]
         if not missing:
             self.logger.info("All required APT packages are already installed.")
             return
@@ -296,11 +312,7 @@ class SystemSetup:
                 f"Required APT packages are unavailable on {context.operating_system} "
                 f"{context.release_version}: {' '.join(unavailable)}"
             )
-        legacy = [
-            package
-            for package in LEGACY_CONFLICTING_PACKAGES
-            if self.apt_package_installed(package)
-        ]
+        legacy = [package for package in LEGACY_CONFLICTING_PACKAGES if package in installed]
         if legacy:
             self.logger.warn(
                 "Removing legacy dev package(s) installed by older versions of this script: "

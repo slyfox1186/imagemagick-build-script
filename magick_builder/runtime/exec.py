@@ -18,7 +18,7 @@ import sys
 import tempfile
 import threading
 from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 from . import shellquote
@@ -106,6 +106,10 @@ def _terminate_process(
         process.wait()
 
 
+def _relays_signals(arguments: Sequence[str]) -> bool:
+    return Path(arguments[0]).name == "sudo"
+
+
 @contextmanager
 def managed_process(
     process: subprocess.Popen[bytes], *, signal_relay: bool = False
@@ -149,14 +153,7 @@ class Runner:
     # -- environment -----------------------------------------------------
 
     def child_environment(self, overrides: Mapping[str, str] | None = None) -> dict[str, str]:
-        environment = dict(self.environment)
-        if overrides:
-            for name, value in overrides.items():
-                if value is None:
-                    environment.pop(name, None)
-                else:
-                    environment[name] = value
-        return environment
+        return {**self.environment, **(overrides or {})}
 
     # -- logging helpers -------------------------------------------------
 
@@ -241,38 +238,29 @@ class Runner:
 
         if self.debug and self.log_file is not None:
             exit_code = self._run_teed(arguments, working_directory, environment, stdin_text)
-        elif self.log_file is not None:
+        else:
             start = self._log_size()
-            with self.log_file.open("ab") as sink:
+            with ExitStack() as stack:
+                # Without a log file, output goes straight to the terminal.
+                sink = (
+                    None if self.log_file is None else stack.enter_context(self.log_file.open("ab"))
+                )
                 with managed_process(
                     subprocess.Popen(
                         list(arguments),
                         cwd=working_directory,
                         env=environment,
                         stdout=sink,
-                        stderr=subprocess.STDOUT,
+                        stderr=None if sink is None else subprocess.STDOUT,
                         stdin=subprocess.PIPE if stdin_text is not None else None,
                         process_group=0,
                     ),
-                    signal_relay=Path(arguments[0]).name == "sudo",
+                    signal_relay=_relays_signals(arguments),
                 ) as process:
                     process.communicate(stdin_text.encode() if stdin_text is not None else None)
                     exit_code = process.wait()
             if exit_code != 0:
                 self._replay_log(start)
-        else:
-            with managed_process(
-                subprocess.Popen(
-                    list(arguments),
-                    cwd=working_directory,
-                    env=environment,
-                    stdin=subprocess.PIPE if stdin_text is not None else None,
-                    process_group=0,
-                ),
-                signal_relay=Path(arguments[0]).name == "sudo",
-            ) as process:
-                process.communicate(stdin_text.encode() if stdin_text is not None else None)
-                exit_code = process.wait()
 
         # Only the slow commands get a timing line. A compile that ran for
         # twenty minutes is worth recording; a version probe that took no
@@ -312,7 +300,7 @@ class Runner:
                     stdin=source if stdin_text is not None else None,
                     process_group=0,
                 ),
-                signal_relay=Path(arguments[0]).name == "sudo",
+                signal_relay=_relays_signals(arguments),
             ) as process:
                 assert process.stdout is not None
                 output = process.stdout
@@ -341,8 +329,8 @@ class Runner:
             stdin_text=stdin_text,
             display=display,
         )
+        # Not notified here: the failure reaches main's report, which notifies once.
         if exit_code != 0:
-            notify_failure(f"Command failed: '{command_display}'.")
             raise CommandFailed(
                 f"Command failed with exit code {exit_code}: '{command_display}'.",
                 exit_code,

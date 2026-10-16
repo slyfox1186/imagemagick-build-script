@@ -1,4 +1,4 @@
-"""Bounded ASCII integer parsing shared by CLI, menu and environment settings."""
+"""Bounded ASCII integer parsing shared by the CLI and environment settings."""
 
 from __future__ import annotations
 

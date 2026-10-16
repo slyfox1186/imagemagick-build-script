@@ -72,7 +72,7 @@ class SelfContainedInstall:
 
     # -- probes ----------------------------------------------------------
 
-    def _inside_build_root(self, path: str) -> bool:
+    def inside_build_root(self, path: str) -> bool:
         return Path(path).is_absolute() and path_is_within(path, self.root)
 
     def _staged_library_path(self) -> str:
@@ -125,7 +125,7 @@ class SelfContainedInstall:
                     raise BuildError(
                         f"{path.relative_to(self.staging)} needs {soname}, which is not found."
                     )
-                if not self._inside_build_root(resolved) or path_is_within(resolved, self.staging):
+                if not self.inside_build_root(resolved) or path_is_within(resolved, self.staging):
                     continue
                 source = Path(os.path.realpath(resolved))
                 if sources.setdefault(soname, source) != source:
@@ -142,7 +142,7 @@ class SelfContainedInstall:
         """Drop build-root entries; objects that load a bundled library search it first."""
         for path in elf_files(self.staging / "usr"):
             entries = self.run_path(path)
-            kept = [entry for entry in entries if not self._inside_build_root(entry)]
+            kept = [entry for entry in entries if not self.inside_build_root(entry)]
             needed = set(self._patchelf("--print-needed", str(path)).split())
             if needed & bundled and str(BUNDLED_LIBRARY_DIRECTORY) not in kept:
                 kept.insert(0, str(BUNDLED_LIBRARY_DIRECTORY))
@@ -201,7 +201,7 @@ class SelfContainedInstall:
         ]
         for path in elf_files(self.staging / "usr"):
             name = path.relative_to(self.staging)
-            leaked = [entry for entry in self.run_path(path) if self._inside_build_root(entry)]
+            leaked = [entry for entry in self.run_path(path) if self.inside_build_root(entry)]
             if leaked:
                 problems.append(f"{name} searches {':'.join(leaked)}")
             data = path.read_bytes()
@@ -238,7 +238,7 @@ def audit_published_install(context: BuildContext, files: list[Path]) -> None:
         for soname, resolved in checker.dependencies(path, None).items():
             if resolved is None:
                 problems.append(f"{path}: {soname} not found")
-            elif checker._inside_build_root(resolved):
+            elif checker.inside_build_root(resolved):
                 problems.append(f"{path}: {soname} loads from the build root ({resolved})")
     if problems:
         raise BuildError(

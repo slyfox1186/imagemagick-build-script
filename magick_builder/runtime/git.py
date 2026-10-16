@@ -8,7 +8,6 @@ workspace does not support.
 
 from __future__ import annotations
 
-import os
 import re
 import tempfile
 from collections.abc import Callable
@@ -17,7 +16,7 @@ from pathlib import Path
 from .errors import BuildError
 from .exec import Runner
 from .logging import Logger
-from .paths import safe_remove_tree
+from .paths import replace_directory, safe_remove_tree
 
 _REPO_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 _COMMIT = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})")
@@ -46,6 +45,10 @@ class GitCloner:
         self.operation_timeout = operation_timeout
         self._register = register_temporary or (lambda _path: None)
         self._unregister = unregister_temporary or (lambda _path: None)
+
+    def _discard(self, clone_parent: Path) -> None:
+        safe_remove_tree(clone_parent, self.packages)
+        self._unregister(clone_parent)
 
     def local_head(self, directory: Path) -> str | None:
         completed = self.runner.capture(
@@ -78,55 +81,49 @@ class GitCloner:
             raise BuildError(f"Unsupported git clone mode '{mode}' for '{repository_name}'.")
 
         target_directory = self.packages / repository_name
-        clone_parent = Path(
-            tempfile.mkdtemp(prefix=f".clone-{repository_name}.", dir=self.packages)
-        )
-        self._register(clone_parent)
-        clone_directory = clone_parent / "repository"
-
-        arguments = [
-            "timeout",
-            "--foreground",
-            str(self.clone_timeout),
-            "git",
-            "-c",
-            "protocol.allow=never",
-            "-c",
-            "protocol.https.allow=always",
-            "clone",
-            "--quiet",
-        ]
+        options = ["--quiet"]
         if mode == "shallow":
-            arguments += ["--depth", "1"]
+            options += ["--depth", "1"]
         elif mode == "recurse":
-            arguments += ["--depth", "1", "--recurse-submodules", "--shallow-submodules"]
+            options += ["--depth", "1", "--recurse-submodules", "--shallow-submodules"]
         if reference is not None:
-            arguments += ["--branch", reference]
-        arguments += ["--", repository_url, str(clone_directory)]
+            options += ["--branch", reference]
 
-        environment = {"GIT_TERMINAL_PROMPT": "0"}
-        if self.runner.run_logged(arguments, env_overrides=environment) != 0:
-            safe_remove_tree(clone_parent, self.packages)
-            self._unregister(clone_parent)
-            self.logger.warn(f"Failed to clone '{repository_url}'; retrying once.")
+        for attempt in (1, 2):
             clone_parent = Path(
                 tempfile.mkdtemp(prefix=f".clone-{repository_name}.", dir=self.packages)
             )
             self._register(clone_parent)
             clone_directory = clone_parent / "repository"
-            arguments[-1] = str(clone_directory)
-            if self.runner.run_logged(arguments, env_overrides=environment) != 0:
-                safe_remove_tree(clone_parent, self.packages)
-                self._unregister(clone_parent)
-                self.logger.warn(f"Failed to clone '{repository_url}' after two attempts.")
-                return None
+            arguments = [
+                "timeout",
+                "--foreground",
+                str(self.clone_timeout),
+                "git",
+                "-c",
+                "protocol.allow=never",
+                "-c",
+                "protocol.https.allow=always",
+                "clone",
+                *options,
+                "--",
+                repository_url,
+                str(clone_directory),
+            ]
+            if self.runner.run_logged(arguments, env_overrides={"GIT_TERMINAL_PROMPT": "0"}) == 0:
+                break
+            self._discard(clone_parent)
+            if attempt == 1:
+                self.logger.warn(f"Failed to clone '{repository_url}'; retrying once.")
+        else:
+            self.logger.warn(f"Failed to clone '{repository_url}' after two attempts.")
+            return None
 
         actual_commit = self.local_head(clone_directory)
         if actual_commit is None or (
             expected_commit is not None and actual_commit != expected_commit
         ):
-            safe_remove_tree(clone_parent, self.packages)
-            self._unregister(clone_parent)
+            self._discard(clone_parent)
             self.logger.warn(
                 f"Cloned '{repository_url}', but its checked-out commit did not match the requested release."
             )
@@ -134,32 +131,18 @@ class GitCloner:
 
         if target_directory.is_symlink():
             raise BuildError(f"Refusing a symlinked Git destination: '{target_directory}'.")
-        previous = clone_parent / ".previous-checkout"
-        had_previous = target_directory.exists()
         # Once this directory can hold the old source, abort cleanup must leave
         # it alone. This also covers a signal immediately after the first rename.
         self._unregister(clone_parent)
         try:
-            if had_previous:
-                os.rename(target_directory, previous)
-            try:
-                os.rename(clone_directory, target_directory)
-            except BaseException:
-                if had_previous:
-                    try:
-                        os.rename(previous, target_directory)
-                    except OSError as restore_error:
-                        raise BuildError(
-                            f"Git source restoration failed; recovery files remain at '{previous}'."
-                        ) from restore_error
-                raise
+            replace_directory(
+                clone_directory, target_directory, clone_parent / ".previous-checkout"
+            )
         except OSError as error:
-            safe_remove_tree(clone_parent, self.packages)
-            self._unregister(clone_parent)
+            self._discard(clone_parent)
             self.logger.warn(
                 f"Failed to publish the completed clone for '{repository_name}': {error}"
             )
             return None
-        safe_remove_tree(clone_parent, self.packages)
-        self._unregister(clone_parent)
+        self._discard(clone_parent)
         return actual_commit

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .runtime.errors import UsageError
 from .runtime.settings import MAX_PROCESS_INTEGER, parse_integer
-from .usage import SCRIPT_NAME, SCRIPT_VERSION, metadata_response, usage_text
+from .usage import SCRIPT_NAME, SCRIPT_VERSION, usage_text
 
 __all__ = [
     "GCC_MAX_VERSION",
@@ -26,7 +26,6 @@ __all__ = [
     "SCRIPT_NAME",
     "SCRIPT_VERSION",
     "parse_arguments",
-    "requested_metadata",
     "resolve_config_path",
     "usage_text",
 ]
@@ -46,11 +45,6 @@ class Arguments:
         self.latest = False
         self.debug = False
         self.config_path: str | None = None
-
-
-def requested_metadata(argv: list[str]) -> str | None:
-    """Answer `--help`/`--version` before any other work happens."""
-    return metadata_response(argv)
 
 
 def _value(argv: list[str], index: int, option: str) -> str:

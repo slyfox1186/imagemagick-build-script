@@ -177,6 +177,30 @@ def safe_remove_tree(target: str | os.PathLike[str], allowed_root: str | os.Path
         raise BuildError(f"Failed to remove bounded path '{resolved_target}': {error}") from error
 
 
+def replace_directory(staged: Path, target: Path, recovery: Path) -> None:
+    """Publish `staged` at `target`, moving any previous `target` to `recovery`.
+
+    Readers never see a half-written tree. When the second rename fails the
+    previous tree is put back; when even that fails, a BuildError names
+    `recovery`, which then holds the only copy, so callers must not delete it.
+    An OSError from the swap itself propagates with the previous tree in place.
+    """
+    had_previous = target.exists()
+    if had_previous:
+        os.rename(target, recovery)
+    try:
+        os.rename(staged, target)
+    except BaseException:
+        if had_previous:
+            try:
+                os.rename(recovery, target)
+            except OSError as restore_error:
+                raise BuildError(
+                    f"Source restoration failed; recovery files remain at '{recovery}'."
+                ) from restore_error
+        raise
+
+
 def is_exclusive_regular_file(path: Path) -> bool:
     """True for a regular file that is neither a symlink nor multiply linked.
 

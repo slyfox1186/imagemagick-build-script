@@ -30,6 +30,7 @@ from .paths import (
     canonicalize,
     is_exclusive_regular_file,
     path_is_within,
+    replace_directory,
     safe_remove_tree,
 )
 from .state import publish_atomically
@@ -63,6 +64,36 @@ class DownloadSettings:
         self.retry = positive("DOWNLOAD_RETRY", 5)
         self.retry_delay = positive("DOWNLOAD_RETRY_DELAY", 5)
         self.lock_timeout = positive("DOWNLOAD_LOCK_TIMEOUT", 1800)
+
+
+def https_curl_arguments(
+    *, connect_timeout: int, max_time: int, retry: int, retry_delay: int
+) -> list[str]:
+    """The curl flags every fetch shares: HTTPS pinned across redirects, TLS 1.2
+    or newer, the project user agent, and bounded retries."""
+    return [
+        "curl",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--location",
+        "--proto",
+        "=https",
+        "--proto-redir",
+        "=https",
+        "--tlsv1.2",
+        "--user-agent",
+        USER_AGENT,
+        "--connect-timeout",
+        str(connect_timeout),
+        "--max-time",
+        str(max_time),
+        "--retry",
+        str(retry),
+        "--retry-delay",
+        str(retry_delay),
+        "--retry-all-errors",
+    ]
 
 
 def archive_output_directory(filename: str) -> str:
@@ -144,6 +175,14 @@ class Downloader:
         self._register = register_temporary or (lambda _path: None)
         self._unregister = unregister_temporary or (lambda _path: None)
         self.build_root_locked = build_root_locked
+
+    def _discard(self, path: Path) -> None:
+        """Remove a temporary file or tree this downloader created; stop tracking it."""
+        if path.is_dir() and not path.is_symlink():
+            safe_remove_tree(path, self.packages)
+        else:
+            path.unlink(missing_ok=True)
+        self._unregister(path)
 
     # -- validation ------------------------------------------------------
 
@@ -330,30 +369,15 @@ class Downloader:
 
         settings = self.settings
         arguments = [
-            "curl",
-            "--fail",
-            "--silent",
-            "--show-error",
-            "--location",
-            "--proto",
-            "=https",
-            "--proto-redir",
-            "=https",
-            "--tlsv1.2",
-            "--user-agent",
-            USER_AGENT,
-            "--retry",
-            str(settings.retry),
-            "--retry-delay",
-            str(settings.retry_delay),
+            *https_curl_arguments(
+                connect_timeout=settings.connect_timeout,
+                max_time=settings.max_time,
+                retry=settings.retry,
+                retry_delay=settings.retry_delay,
+            ),
             "--retry-max-time",
             str(settings.max_time),
             "--retry-connrefused",
-            "--retry-all-errors",
-            "--connect-timeout",
-            str(settings.connect_timeout),
-            "--max-time",
-            str(settings.max_time),
             "--max-filesize",
             str(settings.max_bytes),
             "--output",
@@ -366,8 +390,7 @@ class Downloader:
         self.logger.get(url, filename)
         # The record above names the URL; the transport flags only matter in --debug.
         if self.runner.run_logged(arguments, quiet=True) != 0:
-            temporary.unlink(missing_ok=True)
-            self._unregister(temporary)
+            self._discard(temporary)
             self.logger.warn(f"Failed to download '{filename}'.")
             return False
 
@@ -376,14 +399,12 @@ class Downloader:
         except OSError:
             downloaded_size = settings.max_bytes + 1
         if downloaded_size > settings.max_bytes:
-            temporary.unlink(missing_ok=True)
-            self._unregister(temporary)
+            self._discard(temporary)
             self.logger.warn(f"Downloaded '{filename}' exceeds the configured size limit.")
             return False
 
         if not self.validate_tar_archive(temporary):
-            temporary.unlink(missing_ok=True)
-            self._unregister(temporary)
+            self._discard(temporary)
             self.logger.warn(
                 f"Downloaded '{filename}', but it is not a safe, valid single-root tar archive."
             )
@@ -392,8 +413,7 @@ class Downloader:
         try:
             os.replace(temporary, target)
         except OSError:
-            temporary.unlink(missing_ok=True)
-            self._unregister(temporary)
+            self._discard(temporary)
             return False
         self._unregister(temporary)
 
@@ -422,8 +442,7 @@ class Downloader:
                 bundle.extractall(path=staging, filter="data")
         except (tarfile.TarError, OSError, EOFError, KeyError) as error:
             self.logger.warn(f"Failed to extract '{archive}': {error}")
-            safe_remove_tree(staging, self.packages)
-            self._unregister(staging)
+            self._discard(staging)
             return (
                 ExtractionResult.LOCAL_FAILURE
                 if isinstance(error, OSError)
@@ -433,48 +452,28 @@ class Downloader:
         roots = list(staging.iterdir())
         if len(roots) != 1 or not roots[0].is_dir():
             self.logger.warn(f"Archive '{archive}' extracted no source files.")
-            safe_remove_tree(staging, self.packages)
-            self._unregister(staging)
+            self._discard(staging)
             return ExtractionResult.INVALID_ARCHIVE
         stripped = roots[0]
 
         if not self._validate_extracted_tree(archive, stripped):
-            safe_remove_tree(staging, self.packages)
-            self._unregister(staging)
+            self._discard(staging)
             return ExtractionResult.INVALID_ARCHIVE
 
         if target_directory.is_symlink() or not path_is_within(target_directory, self.packages):
-            safe_remove_tree(staging, self.packages)
-            self._unregister(staging)
+            self._discard(staging)
             raise BuildError(f"Refusing unsafe extraction destination: '{target_directory}'.")
-        previous = staging / ".previous-source"
-        had_previous = target_directory.exists()
         # Once staging can contain the old source it is recovery data. A signal
         # can arrive immediately after rename, before Python enters its handler;
         # abort cleanup must never erase that only remaining copy.
         self._unregister(staging)
         try:
-            if had_previous:
-                os.rename(target_directory, previous)
-            try:
-                os.rename(stripped, target_directory)
-            except BaseException:
-                if had_previous:
-                    try:
-                        os.rename(previous, target_directory)
-                    except OSError as restore_error:
-                        self._unregister(staging)
-                        raise BuildError(
-                            f"Source restoration failed; recovery files remain at '{previous}'."
-                        ) from restore_error
-                raise
+            replace_directory(stripped, target_directory, staging / ".previous-source")
         except OSError as error:
             self.logger.warn(f"Failed to publish the extracted source for '{archive}': {error}")
-            safe_remove_tree(staging, self.packages)
-            self._unregister(staging)
+            self._discard(staging)
             return ExtractionResult.LOCAL_FAILURE
-        safe_remove_tree(staging, self.packages)
-        self._unregister(staging)
+        self._discard(staging)
         return ExtractionResult.SUCCESS
 
     # -- public entry points ---------------------------------------------

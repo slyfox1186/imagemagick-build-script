@@ -16,7 +16,7 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
-from .download import USER_AGENT
+from .download import https_curl_arguments
 from .exec import Runner
 from .logging import Logger
 from .versioncmp import version_compare
@@ -162,27 +162,9 @@ class VersionResolver:
         """
         completed = self.runner.capture(
             [
-                "curl",
-                "--fail",
-                "--silent",
-                "--show-error",
-                "--location",
-                "--proto",
-                "=https",
-                "--proto-redir",
-                "=https",
-                "--tlsv1.2",
-                "--user-agent",
-                USER_AGENT,
-                "--connect-timeout",
-                "15",
-                "--max-time",
-                str(max_time),
-                "--retry",
-                "3",
-                "--retry-delay",
-                "5",
-                "--retry-all-errors",
+                *https_curl_arguments(
+                    connect_timeout=15, max_time=max_time, retry=3, retry_delay=5
+                ),
                 url,
             ],
             timeout=max_time * 4 + 30,

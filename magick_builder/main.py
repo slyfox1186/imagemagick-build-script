@@ -14,7 +14,6 @@ from .cli import (
     SCRIPT_VERSION,
     Arguments,
     parse_arguments,
-    requested_metadata,
     resolve_config_path,
     usage_text,
 )
@@ -51,6 +50,7 @@ from .stages.image_libraries import install_image_libraries
 from .stages.imagemagick import ImageMagickStage, report_installed_version
 from .stages.system_setup import SystemSetup, configure_environment
 from .stages.text_libraries import install_text_libraries
+from .usage import metadata_response
 
 _POSITIVE_INTEGER_SETTINGS = (
     "DOWNLOAD_CONNECT_TIMEOUT",
@@ -256,15 +256,28 @@ class Orchestrator:
     # -- cleanup ---------------------------------------------------------
 
     def _leftover_artifacts(self) -> list[Path]:
-        """Directories a build and its tooling leave in the checkout."""
+        """Directories a build and its tooling leave in the checkout.
+
+        The walk never enters `.git` or a build root: the default root lives in
+        the checkout, and walking it would visit every file of every unpacked
+        source tree and count their own `__pycache__` directories as ours.
+        """
         repository = canonicalize(self.repo_root)
+        build_root = canonicalize(self.build_root)
         candidates = [repository / name for name in LEFTOVER_ARTIFACT_NAMES]
         candidates.extend(sorted(repository.glob("*.egg-info")))
-        candidates.extend(
-            path
-            for path in sorted(repository.rglob("__pycache__"))
-            if ".git" not in path.relative_to(repository).parts
-        )
+        skipped = (".git", *LEFTOVER_ARTIFACT_NAMES)
+        for directory, subdirectories, _files in os.walk(repository):
+            current = Path(directory)
+            if "__pycache__" in subdirectories:
+                candidates.append(current / "__pycache__")
+            subdirectories[:] = sorted(
+                name
+                for name in subdirectories
+                if name not in skipped
+                and current / name != build_root
+                and not (current / name / BUILD_ROOT_MARKER_NAME).exists()
+            )
         for legacy in LEGACY_BUILD_ROOT_NAMES:
             path = repository / legacy
             # A legacy root is only ours while it carries a marker or is empty.
@@ -357,9 +370,10 @@ class Orchestrator:
 
         The build-root lock is per build root, so two builds with different
         roots would otherwise collide on dpkg's own lock. The lock lives in the
-        per-user runtime directory, never in world-writable /tmp.
+        per-user runtime directory, never in world-writable /tmp. HOME is
+        known to be absolute here: `assert_safe_build_root` already required it.
         """
-        base = os.environ.get("XDG_RUNTIME_DIR") or f"{os.environ.get('HOME', '/tmp')}/.cache"
+        base = os.environ.get("XDG_RUNTIME_DIR") or f"{os.environ['HOME']}/.cache"
         lock_dir = canonicalize(base) / "imagemagick-build-script"
         try:
             lock_dir.mkdir(parents=True, exist_ok=True)
@@ -438,7 +452,7 @@ class Orchestrator:
         self.logger.farewell(REPOSITORY_URL)
 
     def run(self) -> int:
-        metadata = requested_metadata(self.argv)
+        metadata = metadata_response(self.argv)
         if metadata is not None:
             sys.stdout.write(metadata)
             return 0
@@ -515,14 +529,14 @@ def main(argv: list[str]) -> int:
 def _report_failure(orchestrator: Orchestrator, error: BuildError) -> None:
     """Report a fatal failure as one record, with the log and bug-report pointer under it."""
     context = orchestrator.context
-    in_progress = context._package_in_progress if context is not None else ""
+    in_progress = context.package_in_progress if context is not None else ""
     detail = [str(error)]
     if context is not None and context.log_file.is_file():
         detail.append(f"Build log: {context.log_file}")
     detail.append(f"Report a bug: {ISSUE_TRACKER_URL}")
     print(file=sys.stderr)
     if context is not None and in_progress:
-        orchestrator.logger.package_failed(in_progress, context._package_version, detail[0])
+        orchestrator.logger.package_failed(in_progress, context.package_version, detail[0])
         for line in detail[1:]:
             orchestrator.logger.hint(line)
     else:

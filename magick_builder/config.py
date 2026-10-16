@@ -161,7 +161,7 @@ _TEMPLATE_PREAMBLE = """\
 
 [build]
 # Recheck upstream releases and rebuild components whose recorded versions
-# differ. The --latest command-line flag overrides this key.
+# differ. The --latest command-line flag turns this on for one run.
 latest = {latest}
 
 [packages]

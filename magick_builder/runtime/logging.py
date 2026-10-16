@@ -298,18 +298,8 @@ class Logger:
             if fragment
         ]
 
-    def line(
-        self,
-        level: str,
-        message: str,
-        *,
-        stream: TextIO | None = None,
-        command_arguments: Sequence[str] | None = None,
-    ) -> None:
+    def line(self, level: str, message: str, *, stream: TextIO | None = None) -> None:
         """Render one record and append it to the build log."""
-        if level == "RUN":
-            self._command(message, command_arguments, stream=stream)
-            return
         for index, text in enumerate(message.splitlines() or [""]):
             if index == 0:
                 self._emit(self._tag(level), self._text_parts(text), stream=stream)
@@ -327,7 +317,6 @@ class Logger:
         message: str,
         arguments: Sequence[str] | None,
         *,
-        stream: TextIO | None = None,
         quiet: bool = False,
         shown: str | None = None,
     ) -> None:
@@ -341,12 +330,12 @@ class Logger:
             words = raw = shown.split(" ")
         if not quiet or self.debug_enabled:
             parts: list[Fragment] = []
-            for position, (word, shown) in enumerate(zip(raw, words, strict=True)):
+            for position, (word, rendered) in enumerate(zip(raw, words, strict=True)):
                 if word.startswith(("http://", "https://")):
-                    parts.append((shown, "cyan", False))
+                    parts.append((rendered, "cyan", False))
                 else:
-                    parts.append((shown, "", position == 0))
-            self._emit(("$", "dim", False), _spaced(parts), stream=stream, indent=COMMAND_INDENT)
+                    parts.append((rendered, "", position == 0))
+            self._emit(("$", "dim", False), _spaced(parts), indent=COMMAND_INDENT)
         self._record("RUN", message)
 
     # -- package lifecycle ------------------------------------------------

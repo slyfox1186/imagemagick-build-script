@@ -45,14 +45,17 @@ def install_font_files(context: BuildContext, key: str, checkout: Path) -> None:
 
 def install_fonts(context: BuildContext) -> None:
     if not any(context.package_enabled(key) for key in FONT_PACKAGES):
-        context.packages_disabled += len(FONT_PACKAGES)
         return
     context.logger.banner("Installing Fonts")
+    installed = False
     for key in FONT_PACKAGES:
         resolved = context.resolve(key)
         if resolved and context.build(key, resolved.version):
             checkout = context.clone(key, resolved)
             install_font_files(context, key, checkout)
             context.build_done(key, resolved.version)
-    # The fontconfig cache refresh is the stage's only other privileged step.
-    context.sudo("fc-cache", "-f")
+            installed = True
+    # The stage's only other privileged step, needed only when a font directory
+    # changed; fontconfig also rescans any directory whose mtime moved.
+    if installed:
+        context.sudo("fc-cache", "-f")

@@ -89,7 +89,6 @@ class BuildContext:
 
         self.packages_built = 0
         self.packages_already_built = 0
-        self.packages_disabled = 0
         self._package_started = 0
         self._package_in_progress = ""
         self._package_version = ""
@@ -150,6 +149,11 @@ class BuildContext:
 
     def package_enabled(self, key: str) -> bool:
         return self.selection.enabled(key)
+
+    @property
+    def packages_disabled(self) -> int:
+        """Derived from the selection: stages skip a disabled package before `build()`."""
+        return len(registry.PACKAGE_NAMES) - len(self.selection.enabled_names())
 
     # -- artifacts -------------------------------------------------------
 
@@ -219,12 +223,20 @@ class BuildContext:
 
     # -- build bookkeeping -----------------------------------------------
 
+    @property
+    def package_in_progress(self) -> str:
+        """The package whose recipe is running, or empty between packages."""
+        return self._package_in_progress
+
+    @property
+    def package_version(self) -> str:
+        return self._package_version
+
     def build(self, key: str, version: str | None) -> bool:
         """Decide whether this package's recipe should run."""
         if key not in registry.PACKAGES:
             raise BuildError(f"build() received unsupported package '{key}'.")
         if not self.package_enabled(key):
-            self.packages_disabled += 1
             self.logger.debug(f"{key} is disabled by the package selection config.")
             return False
         if version is None or not is_valid_version(version):
