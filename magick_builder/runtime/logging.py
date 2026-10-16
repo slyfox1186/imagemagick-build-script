@@ -32,6 +32,9 @@ from . import shellquote
 # continuation never reads as a new command.
 COMMAND_INDENT = 4
 MIN_WRAP_WIDTH = 20
+# Report rows (`Logger.field`) align their values in one column after a label
+# padded to this width; the longest label is "Total time".
+FIELD_LABEL_WIDTH = 10
 
 # Terminal tag per record level. The log file keeps the level names.
 _TAGS = {
@@ -394,18 +397,30 @@ class Logger:
         self._record("ERROR", f"{name} {reason}")
 
     def summary(self, built: int, reused: int, failed: int, elapsed: str) -> None:
-        segments: list[Fragment] = [(f"{built} built", "green", True)]
+        counts: list[Fragment] = [(f"{built} built", "green", True)]
         if reused:
-            segments.append((f"{reused} already built", "", False))
+            counts.append((f", {reused} already built", "", False))
         if failed:
-            segments.append((f"{failed} failed", "red", True))
-        counts: list[Fragment] = [("Packages:", "", False)]
-        for position, (text, style, bold) in enumerate(segments):
-            comma = "," if position < len(segments) - 1 else ""
-            counts.append((text + comma, style, bold))
-        self._emit(self._tag("INFO"), _spaced(counts))
-        self._emit(self._tag("INFO"), _spaced([("Total time:", "", False), (elapsed, "", True)]))
-        self._record("INFO", f"{built} built, {reused} reused, {failed} failed, {elapsed} elapsed")
+            counts += [(", ", "", False), (f"{failed} failed", "red", True)]
+        self.field("Packages", counts)
+        self.field("Total time", [(elapsed, "", True)])
+
+    def field(self, label: str, value: str | Sequence[Fragment]) -> None:
+        """One `label  value` row of a report.
+
+        Labels share one column and values the next, so a block of rows reads
+        as a table; a long value wraps under its own column, not the label's.
+        """
+        parts = self._text_parts(value) if isinstance(value, str) else list(value)
+        self._emit((f"  {label:<{FIELD_LABEL_WIDTH}} ", "cyan", False), parts)
+        self._record("INFO", f"{label}: " + "".join(text for text, _style, _bold in parts))
+
+    def block(self, lines: Sequence[Sequence[Fragment]], *, indent: int = 2) -> None:
+        """Untagged lines set off from the records above, such as a table before a prompt."""
+        self._blank()
+        for line in lines:
+            self._emit(None, list(line), indent=indent)
+            self._record("INFO", "".join(text for text, _style, _bold in line))
 
     def farewell(self, url: str) -> None:
         """The closing lines of a successful run, after any cleanup prompt."""

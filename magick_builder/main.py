@@ -21,7 +21,7 @@ from .config import BuildSettings, Selection, load_config
 from .runtime.context import BuildContext, link_mode
 from .runtime.errors import ISSUE_TRACKER_URL, REPOSITORY_URL, BuildError, SignalStop, UsageError
 from .runtime.exec import Runner, base_environment, notify_failure
-from .runtime.logging import Logger, format_duration, format_size
+from .runtime.logging import Fragment, Logger, format_duration, format_size
 from .runtime.paths import (
     DirectoryLock,
     canonicalize,
@@ -109,7 +109,9 @@ def _folder_label(path: Path, repository: Path) -> str:
     return f"{path.relative_to(repository) if path.is_relative_to(repository) else path}/"
 
 
-def cleanup_summary(repository: Path, build_root: Path | None, leftovers: list[Path]) -> str:
+def cleanup_summary(
+    repository: Path, build_root: Path | None, leftovers: list[Path]
+) -> list[list[Fragment]]:
     """What a yes to the cleanup prompt deletes, one row per kind with its size.
 
     One row per kind, so an old build folder holding gigabytes never hides
@@ -143,23 +145,38 @@ def cleanup_summary(repository: Path, build_root: Path | None, leftovers: list[P
     shown = ["" if size is None else format_size(size) for size in sizes]
     label_width = max(len(label) for label, _paths, _description in rows)
     size_width = max(len(text) for text in shown)
-    lines = [
-        f"  {label:<{label_width}}  {text:>{size_width}}  {description}"
+    known = [size for size in sizes if size is not None]
+    header: list[Fragment] = (
+        [
+            ("Cleanup will free ", "", True),
+            (format_size(sum(known)), "green", True),
+            (" by deleting:", "", True),
+        ]
+        if len(known) == len(sizes)
+        else [("Cleanup will delete:", "", True)]
+    )
+    lines: list[list[Fragment]] = [header]
+    lines += [
+        [
+            (f"  {label:<{label_width}}  ", "yellow", False),
+            (f"{text:>{size_width}}", "", True),
+            (f"  {description}", "dim", False),
+        ]
         for (label, _paths, description), text in zip(rows, shown, strict=True)
     ]
-    known = [size for size in sizes if size is not None]
-    header = (
-        f"Cleanup will free {format_size(sum(known))} by deleting:"
-        if len(known) == len(sizes)
-        else "Cleanup will delete:"
-    )
-    lines.append("Your installed ImageMagick and its settings are not affected.")
+    lines.append([("Your installed ImageMagick and its settings are not affected.", "dim", False)])
     if build_root is not None:
         lines.append(
-            f'Answering "no" keeps {_folder_label(build_root, repository)} and makes the next '
-            "build faster."
+            [
+                (
+                    f'Answering "no" keeps {_folder_label(build_root, repository)} and makes the '
+                    "next build faster.",
+                    "dim",
+                    False,
+                )
+            ]
         )
-    return "\n".join([header, *lines])
+    return lines
 
 
 # Bump when a workspace package's recipe changes what it compiles in, so
@@ -387,7 +404,7 @@ class Orchestrator:
         if not root.exists():
             self.logger.info(f"Build root does not exist; nothing to clean: '{root}'.")
             if leftovers and sys.stdin.isatty():
-                self.logger.info(cleanup_summary(canonicalize(self.repo_root), None, leftovers))
+                self.logger.block(cleanup_summary(canonicalize(self.repo_root), None, leftovers))
                 if self._ask("Delete these folders?"):
                     self._remove_leftovers(leftovers)
             return
@@ -411,7 +428,7 @@ class Orchestrator:
                 self.logger.info(f"Non-interactive session; build files preserved: '{resolved}'.")
                 self.logger.hint(f"Remove them later with: python3 {SCRIPT_NAME} --cleanup")
                 return
-            self.logger.info(cleanup_summary(canonicalize(self.repo_root), resolved, leftovers))
+            self.logger.block(cleanup_summary(canonicalize(self.repo_root), resolved, leftovers))
             if not self._ask("Delete these folders?"):
                 self.logger.info(f"Build files preserved: '{resolved}'.")
                 return
@@ -527,8 +544,8 @@ class Orchestrator:
 
         report_success(context)
         if context.packages_disabled:
-            self.logger.info(f"Disabled packages: {context.packages_disabled}")
-        self.logger.info(f"Build log: {context.log_file}")
+            self.logger.field("Disabled", _counted(context.packages_disabled, "package"))
+        self.logger.field("Build log", str(context.log_file))
         self.logger.summary(
             built=context.packages_built,
             reused=context.packages_already_built,

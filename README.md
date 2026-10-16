@@ -261,25 +261,30 @@ example (Debian 12, static default):
 │  ImageMagick build completed successfully  │
 └────────────────────────────────────────────┘
 
-[INFO] Version: ImageMagick 7.1.2-34 Q16-HDRI x86_64 c5d4ca8a0:20261014 https://imagemagick.org
-[INFO] Link mode: static, verified: Features lists no Modules, magick links no libMagick shared object, no coder or filter modules installed
-[INFO] Installation: /usr/local/bin (magick and 12 legacy utilities: animate compare composite conjure convert display identify import magick-script mogrify montage stream)
-[INFO] Features: Cipher DPC HDRI OpenCL OpenMP(4.5)
-[INFO] Delegates (34): bzlib cairo djvu fftw fontconfig fpx freetype gslib gvc heic jbig jng jp2 jpeg jxl lcms lqr ltdl lzma openexr pangocairo png ps raqm raw rsvg tiff webp wmf x xml zip zlib zstd
-[INFO] Formats: 265 readable, 202 writable
-[INFO] Security policy: /usr/local/etc/ImageMagick-7/policy.xml (details: magick identify -list policy)
-[INFO] Install manifest: /usr/local/share/imagemagick-build-script/manifest.txt
-[INFO] Build log: /home/user/imagemagick-build-script/build/build.log
+  Version     7.1.2-34 Q16-HDRI
+  Link mode   static  verified: no Modules feature, no libMagick shared objects, no modules
+  Features    Cipher DPC HDRI OpenCL OpenMP(4.5)
+  Installed   /usr/local/bin/magick and 12 legacy utilities
+  Formats     265 readable, 202 writable
+  Delegates   34  bzlib cairo djvu fftw fontconfig fpx freetype gslib gvc heic jbig jng
+              jp2 jpeg jxl lcms lqr ltdl lzma openexr pangocairo png ps raqm raw rsvg tiff
+              webp wmf x xml zip zlib zstd
+  Policy      /usr/local/etc/ImageMagick-7/policy.xml
+  Manifest    /usr/local/share/imagemagick-build-script/manifest.txt
+  Build log   /home/user/imagemagick-build-script/build/build.log
 ```
 
-The cleanup prompt that follows lists what a "yes" deletes, with sizes:
+The link mode row is checked, not assumed: the build fails unless the
+`Modules` feature, the `libMagick*` libraries `magick` loads, and the installed
+coder modules all match the requested mode. The cleanup prompt that follows
+lists what a "yes" deletes, with sizes:
 
 ```text
-[INFO] Cleanup will free 1.7 GB by deleting:
-         build/           1.7 GB  Downloaded sources, compiled libraries and the build log
-         3 cache folders  1.1 MB  Temporary files, safe to delete
-       Your installed ImageMagick and its settings are not affected.
-       Answering "no" keeps build/ and makes the next build faster.
+  Cleanup will free 1.7 GB by deleting:
+    build/           1.7 GB  Downloaded sources, compiled libraries and the build log
+    3 cache folders  1.1 MB  Temporary files, safe to delete
+  Your installed ImageMagick and its settings are not affected.
+  Answering "no" keeps build/ and makes the next build faster.
 
 [PROMPT] Delete these folders? (yes/no):
 ```

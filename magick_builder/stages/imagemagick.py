@@ -298,22 +298,20 @@ def verify_link_mode(context: BuildContext, report: list[str], magick: Path) -> 
     """The evidence that the installed magick has the build's link mode.
 
     Three independent facts must all agree with the mode: the Features line
-    (`Modules`), the sonames the binary loads (`libMagick*`) and the module
-    directory. Any disagreement is a failed build, not a note.
+    (`Modules`), the sonames the binary loads (`libMagick*`) and the coder and
+    filter modules. Any disagreement is a failed build, not a note.
     """
     features = report_field(report, "Features").split()
     libraries = [
-        soname for soname in needed_libraries(context, magick) if soname.startswith("libMagick")
+        soname.split("-", 1)[0]
+        for soname in needed_libraries(context, magick)
+        if soname.startswith("libMagick")
     ]
     modules = installed_modules(magick)
     facts = [
-        "Features lists Modules" if "Modules" in features else "Features lists no Modules",
-        f"magick links {' and '.join(libraries)}"
-        if libraries
-        else "magick links no libMagick shared object",
-        f"{len(modules)} coder and filter modules in {modules[0].parent.parent}"
-        if modules
-        else "no coder or filter modules installed",
+        "Modules feature" if "Modules" in features else "no Modules feature",
+        f"{' and '.join(libraries)} linked" if libraries else "no libMagick shared objects",
+        f"{len(modules)} module{'' if len(modules) == 1 else 's'}" if modules else "no modules",
     ]
     evidence = ", ".join(facts)
     observed = ("Modules" in features, bool(libraries), bool(modules))
@@ -655,16 +653,29 @@ def report_success(context: BuildContext) -> None:
         name for name in LEGACY_UTILITIES if os.access(MAGICK_BINARY.parent / name, os.X_OK)
     ]
     evidence = verify_link_mode(context, report, MAGICK_BINARY)
+    # "ImageMagick 7.1.2-34 Q16-HDRI x86_64 <commit>:<date> <url>": the release
+    # and the quantum are what a reader compares.
+    version = " ".join(report_field(report, "Version").split()[1:3]) or "unknown"
 
     logger.banner("ImageMagick build completed successfully")
-    logger.info(f"Version: {report_field(report, 'Version')}")
-    logger.info(f"Link mode: {link_mode(context)}, verified: {evidence}")
-    logger.info(
-        f"Installation: {MAGICK_BINARY.parent} (magick and {len(utilities)} legacy utilities: "
-        f"{' '.join(utilities)})"
+    logger.field("Version", [(version, "yellow", True)])
+    logger.field(
+        "Link mode",
+        [(link_mode(context), "green", True), (f"  verified: {evidence}", "dim", False)],
     )
-    logger.info(f"Features: {report_field(report, 'Features')}")
-    logger.info(f"Delegates ({len(delegates)}): {' '.join(delegates)}")
-    logger.info(f"Formats: {readable} readable, {writable} writable")
-    logger.info(f"Security policy: {policy} (details: magick identify -list policy)")
-    logger.info(f"Install manifest: /{MANIFEST_FILE}")
+    logger.field("Features", report_field(report, "Features"))
+    logger.field("Installed", f"{MAGICK_BINARY} and {len(utilities)} legacy utilities")
+    logger.field(
+        "Formats",
+        [
+            (str(readable), "", True),
+            (" readable, ", "", False),
+            (str(writable), "", True),
+            (" writable", "", False),
+        ],
+    )
+    logger.field(
+        "Delegates", [(str(len(delegates)), "", True), ("  " + " ".join(delegates), "", False)]
+    )
+    logger.field("Policy", policy)
+    logger.field("Manifest", f"/{MANIFEST_FILE}")
