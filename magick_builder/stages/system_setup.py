@@ -6,6 +6,7 @@ import os
 import re
 from collections.abc import Sequence
 from pathlib import Path
+from typing import NamedTuple
 
 from ..runtime.context import BuildContext
 from ..runtime.errors import BuildError
@@ -102,17 +103,32 @@ BASE_PACKAGES = (
 # blocks every other solver-proposed removal.
 LEGACY_CONFLICTING_PACKAGES = ("libjpeg62-dev", "libjpeg62-turbo-dev")
 
-# (distribution, major release) -> (codename, release-specific packages, GCC
-# versions in the standard archive). libjxl-dev (the jxl delegate) is not
-# packaged for Ubuntu 22.04, so builds there lack the optional JPEG-XL delegate.
-RELEASES: dict[tuple[str, str], tuple[str, tuple[str, ...], tuple[int, ...]]] = {
-    ("Debian", "12"): ("bookworm", ("libjxl-dev",), (11, 12)),
-    ("Debian", "13"): ("trixie", ("libjxl-dev",), (12, 13, 14)),
-    ("Ubuntu", "22"): ("jammy", (), (9, 10, 11, 12)),
-    ("Ubuntu", "24"): ("noble", ("libjxl-dev",), (9, 10, 11, 12, 13, 14)),
+
+class Release(NamedTuple):
+    codename: str
+    packages: tuple[str, ...]
+    """Release-specific APT packages."""
+    gcc_versions: tuple[int, ...]
+    """The gcc-N/g++-N pairs in the standard archive."""
+    default_gcc: int
+    libtool: str
+    """The workspace libtool, pinned to the version the release's autotools expect."""
+
+
+# Keyed by (distribution, major release); Ubuntu releases are the LTS `.04`
+# ones. libjxl-dev (the jxl delegate) is not packaged for Ubuntu 22.04, so
+# builds there lack the optional JPEG-XL delegate. Ubuntu 26.04 dropped
+# gcc-9/gcc-10, and its gcc-16 is a pre-release snapshot (16-20260322), so it
+# is selectable but the default stays the archive's own gcc-15.
+RELEASES: dict[tuple[str, str], Release] = {
+    ("Debian", "12"): Release("bookworm", ("libjxl-dev",), (11, 12), 12, "2.4.7"),
+    ("Debian", "13"): Release("trixie", ("libjxl-dev",), (12, 13, 14), 14, "2.4.7"),
+    ("Ubuntu", "22"): Release("jammy", (), (9, 10, 11, 12), 12, "2.4.6"),
+    ("Ubuntu", "24"): Release("noble", ("libjxl-dev",), (9, 10, 11, 12, 13, 14), 14, "2.4.7"),
+    ("Ubuntu", "26"): Release("resolute", ("libjxl-dev",), (11, 12, 13, 14, 15, 16), 15, "2.5.4"),
 }
 SUPPORTED_RELEASES = (
-    "Debian 12 (bookworm) through 13 (trixie), Ubuntu 22.04 (jammy) through 24.04 (noble)"
+    "Debian 12 (bookworm) and 13 (trixie), Ubuntu 22.04 (jammy), 24.04 (noble) and 26.04 (resolute)"
 )
 
 _OS_RELEASE_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -145,23 +161,29 @@ def detect_release(path: Path) -> tuple[str, str, str]:
     if not distribution:
         name = fields.get("NAME") or fields.get("ID") or "unknown"
         raise BuildError(f"Unsupported distribution '{name}'. Supported: {SUPPORTED_RELEASES}.")
-    release = RELEASES.get((distribution, version.split(".", 1)[0]))
-    if release is None or (distribution == "Ubuntu" and version not in ("22.04", "24.04")):
+    major = version.split(".", 1)[0]
+    release = RELEASES.get((distribution, major))
+    if release is None or (distribution == "Ubuntu" and version != f"{major}.04"):
         raise BuildError(
             f"Unsupported {distribution} release '{version or 'unknown'}'. "
             f"Supported: {SUPPORTED_RELEASES}."
         )
-    return distribution, version, fields.get("VERSION_CODENAME", "") or release[0]
+    return distribution, version, fields.get("VERSION_CODENAME", "") or release.codename
+
+
+def release_info(distribution: str, version: str) -> Release:
+    """The table entry for a release `detect_release` accepted."""
+    return RELEASES[(distribution, version.split(".", 1)[0])]
 
 
 def gcc_versions(distribution: str, version: str) -> tuple[int, ...]:
-    return RELEASES[(distribution, version.split(".", 1)[0])][2]
+    return release_info(distribution, version).gcc_versions
 
 
 def select_gcc_version(distribution: str, version: str, requested: int | None) -> int:
     available = gcc_versions(distribution, version)
     if requested is None:
-        return available[-1]
+        return release_info(distribution, version).default_gcc
     if requested not in available:
         listed = " ".join(str(item) for item in available)
         raise BuildError(
@@ -172,7 +194,7 @@ def select_gcc_version(distribution: str, version: str, requested: int | None) -
 
 
 def required_packages(distribution: str, version: str, gcc_version: int) -> list[str]:
-    release_packages = RELEASES[(distribution, version.split(".", 1)[0])][1]
+    release_packages = release_info(distribution, version).packages
     return [*BASE_PACKAGES, *release_packages, f"gcc-{gcc_version}", f"g++-{gcc_version}"]
 
 

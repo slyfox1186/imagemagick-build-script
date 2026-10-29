@@ -31,7 +31,7 @@ __all__ = [
 ]
 
 GCC_MIN_VERSION = 9
-GCC_MAX_VERSION = 14
+GCC_MAX_VERSION = 16
 
 
 class Arguments:

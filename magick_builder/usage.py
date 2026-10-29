@@ -26,7 +26,7 @@ OPTIONS = (
     ("-v, --version", "Show the script version"),
     ("    --config <path>", "Load build/package choices from TOML"),
     ("-j, --jobs <count>", "Set parallel build jobs (default: available CPUs)"),
-    ("-g, --gcc-version <9-14>", "GCC major version (default: newest for this OS)"),
+    ("-g, --gcc-version <9-16>", "GCC major version (default: newest stable for this OS)"),
     ("-l, --latest", "Refresh upstream versions and rebuild outdated packages"),
     ("-s, --shared", "Build shared libraries and coder modules (default: static)"),
     ("-d, --debug", "Stream command output while also logging it"),

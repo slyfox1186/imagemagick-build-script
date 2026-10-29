@@ -9,7 +9,7 @@ installing the result to `/usr/local`.
 | OS | Releases | Architecture |
 |---|---|---|
 | Debian | 12 (bookworm), 13 (trixie) | x86_64 only |
-| Ubuntu | 22.04 (jammy), 24.04 (noble) | x86_64 only |
+| Ubuntu | 22.04 (jammy), 24.04 (noble), 26.04 (resolute) | x86_64 only |
 
 The builder detects the distribution and release itself and selects the
 matching APT package set (`libjxl-dev`, the JPEG-XL delegate, is the one
@@ -57,7 +57,7 @@ Options:
   -v, --version               Show the script version
       --config <path>         Load build/package choices from TOML
   -j, --jobs <count>          Set parallel build jobs (default: available CPUs)
-  -g, --gcc-version <9-14>    GCC major version (default: newest for this OS)
+  -g, --gcc-version <9-16>    GCC major version (default: newest stable for this OS)
   -l, --latest                Refresh upstream versions and rebuild outdated packages
   -s, --shared                Build shared libraries and coder modules (default: static)
   -d, --debug                 Stream command output while also logging it
@@ -103,10 +103,12 @@ the install replaces the other mode's files through the manifest.
 
 ### GCC versions
 
-The project supports GCC 9 through 14 where the matching `gcc-N` and `g++-N`
+The project supports GCC 9 through 16 where the matching `gcc-N` and `g++-N`
 packages are available in the distribution's standard archive. The builder
 installs and uses the exact pair selected with `--gcc-version`; without that
-option it selects the highest version available for the detected release.
+option it selects the newest stable version for the detected release. Ubuntu
+26.04's `gcc-16` is a pre-release snapshot (16-20260322), so it is opt-in and
+that release defaults to its own system compiler, GCC 15.
 
 | OS release | Selectable versions | Default |
 |---|---|---|
@@ -114,6 +116,7 @@ option it selects the highest version available for the detected release.
 | Debian 13 | 12-14 | 14 |
 | Ubuntu 22.04 | 9-12 | 12 |
 | Ubuntu 24.04 | 9-14 | 14 |
+| Ubuntu 26.04 | 11-16 | 15 |
 
 For example, `python3 build-magick.py --build --gcc-version 11` selects
 `gcc-11` and `g++-11`. A version outside the release's range fails before

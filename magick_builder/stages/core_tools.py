@@ -6,18 +6,12 @@ from pathlib import Path
 
 from ..registry import GNU_FALLBACK_MIRROR, GNU_PRIMARY_MIRROR
 from ..runtime.context import BuildContext
-from ..runtime.errors import BuildError
 from .helpers import configure_make_install
-from .system_setup import workspace_pkg_config_dirs
+from .system_setup import release_info, workspace_pkg_config_dirs
 
 
 def libtool_version(distribution: str, version: str) -> str:
-    """libtool is pinned per release to the version its autotools expect."""
-    if (distribution, version) == ("Ubuntu", "22.04"):
-        return "2.4.6"
-    if (distribution, version) in (("Ubuntu", "24.04"), ("Debian", "12"), ("Debian", "13")):
-        return "2.4.7"
-    raise BuildError(f"Unsupported OS version for libtool: {distribution} {version}.")
+    return release_info(distribution, version).libtool
 
 
 def gnu_download(context: BuildContext, path: str) -> Path:
@@ -68,6 +62,10 @@ def install_core_tools(context: BuildContext) -> None:
         # library's private dependencies lands on ImageMagick's link line
         # ahead of the workspace directories and -l resolves to the system
         # shared libraries (observed: Debian 12's HarfBuzz instead of ours).
+        #
+        # -std=gnu17: the bundled GLib 2.36 names a goption.c field `bool`, a
+        # keyword in C23, which GCC 15 (Ubuntu 26.04's default) compiles by
+        # default.
         multiarch = context.multiarch
         configure_make_install(
             context,
@@ -77,7 +75,7 @@ def install_core_tools(context: BuildContext) -> None:
             f"--with-pc-path={workspace_pkg_config_dirs(workspace, multiarch)}",
             f"--with-system-include-path=/usr/include/{multiarch}:/usr/include",
             f"--with-system-library-path=/usr/lib/{multiarch}:/usr/lib:/lib/{multiarch}:/lib",
-            f"CFLAGS={context.env['CFLAGS']}",
+            f"CFLAGS={context.env['CFLAGS']} -std=gnu17",
             f"CPPFLAGS={context.env['CPPFLAGS']}",
             f"LDFLAGS={ldflags}",
             library=False,
