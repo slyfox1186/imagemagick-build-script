@@ -11,10 +11,6 @@ from typing import NamedTuple
 from ..runtime.context import BuildContext
 from ..runtime.errors import BuildError
 
-# The project standardizes on the high-level `apt` interface. Only its expected
-# script-interface notice is suppressed; diagnostics and exit codes are intact.
-APT_SCRIPT_OPTIONS = ("-o", "APT::Cmd::Disable-Script-Warning=1")
-
 # Every package has a consumer in this build; all are available on every
 # supported release:
 # - The toolchain and build systems the recipes run: build-essential, the
@@ -99,8 +95,7 @@ BASE_PACKAGES = (
 
 # Installed by releases of this project before 2.0.0; their headers conflict
 # with the libjpeg-turbo8-dev the libgraphviz-dev chain needs, and nothing in
-# this build consumes them. Exactly these are removed; `--no-remove` still
-# blocks every other solver-proposed removal.
+# this build consumes them.
 LEGACY_CONFLICTING_PACKAGES = ("libjpeg62-dev", "libjpeg62-turbo-dev")
 
 
@@ -296,19 +291,10 @@ class SystemSetup:
         return installed
 
     def apt_package_available(self, package: str) -> bool:
-        return self.runner.probe(["apt", *APT_SCRIPT_OPTIONS, "show", package])
+        return self.runner.probe(["apt", "show", package])
 
     def apt(self, *arguments: str) -> None:
-        self.context.execute(
-            [
-                "sudo",
-                "env",
-                "DEBIAN_FRONTEND=noninteractive",
-                "apt",
-                *APT_SCRIPT_OPTIONS,
-                *arguments,
-            ]
-        )
+        self.context.execute(["sudo", "apt", *arguments])
 
     def install_packages(self, packages: list[str]) -> None:
         """Install what is missing, failing closed before any mutation.
@@ -340,7 +326,7 @@ class SystemSetup:
             )
             self.apt("remove", "-y", *legacy)
         self.logger.info(f"Installing {len(missing)} missing APT package(s): {' '.join(missing)}")
-        self.apt("install", "-y", "--no-remove", *missing)
+        self.apt("install", "-y", *missing)
 
     def activate_compiler(self, version: int) -> None:
         context = self.context
