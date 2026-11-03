@@ -50,6 +50,7 @@ Usage: build-magick.py [options]
 
 Actions:
   -b, --build                 Build and install ImageMagick
+  -l, --latest                Refresh upstream versions and rebuild outdated packages
   -c, --cleanup               Remove this project's build root and build leftovers
 
 Options:
@@ -58,7 +59,6 @@ Options:
       --config <path>         Load build/package choices from TOML
   -j, --jobs <count>          Set parallel build jobs (default: available CPUs)
   -g, --gcc-version <9-16>    GCC major version (default: newest stable for this OS)
-  -l, --latest                Refresh upstream versions and rebuild outdated packages
   -s, --shared                Build shared libraries and coder modules (default: static)
   -d, --debug                 Stream command output while also logging it
 
