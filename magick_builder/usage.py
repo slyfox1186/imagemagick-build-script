@@ -86,6 +86,7 @@ VALUE_NOTE = (
 ENVIRONMENT = (
     ("BUILD_ROOT=<dir>", "Build workspace (default: build/ in this checkout)"),
     ("NO_COLOR=1", "Never color the terminal output"),
+    (".env", "Every setting in .env.example can be saved in a .env file beside this script"),
 )
 EXAMPLES = (
     ("Build every package and install ImageMagick", COMMAND + " --build"),

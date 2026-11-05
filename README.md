@@ -68,9 +68,13 @@ installing the result to `/usr/local`.
   `.ruff_cache/`, `.mypy_cache/` and `*.egg-info/`, which Python tools recreate
   when needed. The cleanup prompt now covers only `build/` and old build
   folders, and nothing inside a build root is ever counted as a cache.
-  To keep them while you work on this repository, put
-  `BYPASS_CACHE_DELETE=true` in a `.env` file at the top of the checkout
-  (ignored by Git) or set it in the environment, where it takes precedence.
+  To keep them while you work on this repository, set
+  `BYPASS_CACHE_DELETE=true` in your [settings file](#settings-file-env) or in
+  the environment.
+- **A settings file.** Every environment setting the script reads (build
+  folder, colors, download and Git time limits, lock waits, the cache bypass)
+  can be saved in a `.env` file beside the script. `.env.example` lists each one
+  with what it does and its default; see [Settings file](#settings-file-env).
 - Prompts ignore arrow and Home/End key codes and anything typed before the
   question appeared.
 - Single-letter options can be grouped: `-bls` is `-b -l -s`, and `-bj8` is
@@ -185,6 +189,8 @@ Environment variables:
   BUILD_ROOT=<dir>                Build workspace
                                   (default: build/ in this checkout)
   NO_COLOR=1                      Never color the terminal output
+  .env                            Every setting in .env.example can be saved in
+                                  a .env file beside this script
 
 Examples:
   # Build every package and install ImageMagick
@@ -306,6 +312,28 @@ For example, `python3 build-magick.py --build --gcc-version 11` selects
 package installation. `--gcc-version` applies only to GCC builds; with
 `--clang` it is an error, and a config's `gcc_version` is ignored with a
 warning.
+
+## Settings file (`.env`)
+
+Settings you would otherwise type before the command, such as
+`BUILD_ROOT=/data/im python3 build-magick.py --build`, can be saved once:
+
+```bash
+cp .env.example .env
+```
+
+Then open `.env`, delete the `# ` in front of each `NAME=value` line you want
+to change, and edit its value. [`.env.example`](.env.example) lists every
+setting with what it does, its allowed values and its default; every value
+shown is the default, so a line uncommented unchanged changes nothing.
+
+- `.env` sits next to `build-magick.py` and is ignored by Git.
+- A variable set in the shell wins over `.env` for that run.
+- Only the settings listed in `.env.example` are read. Any other line, such as
+  a misspelled name or one that starts with `export`, is reported with its line
+  number and ignored, so the file cannot change variables such as `PATH`.
+- Values are checked exactly as if they had been exported; an invalid one stops
+  the build before anything is installed. An unreadable `.env` stops the run.
 
 ## Package selection (`--config`)
 

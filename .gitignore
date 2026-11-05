@@ -48,6 +48,7 @@ htmlcov/
 # Secrets and local configuration
 .env
 .env.*
+!.env.example
 /custom*.toml
 GPT_PLAN_CRITIQUE.md
 
