@@ -13,7 +13,6 @@ from pathlib import Path
 
 from .. import registry
 from ..config import Selection
-from . import shellquote
 from .download import Downloader, DownloadSettings
 from .errors import BuildError
 from .exec import Runner
@@ -351,9 +350,9 @@ class BuildContext:
             if self.artifacts_present(key):
                 self.packages_already_built += 1
                 self.logger.package_reused(key, version)
-                self.logger.debug(
-                    "Force a rebuild with: " + shellquote.join(["rm", "-f", "--", str(marker)])
-                )
+                # Shown on its own line so it can be copied whole; deleting the
+                # marker rebuilds the package on the next run.
+                self.logger.hint(str(marker))
                 return False
             self.logger.warn(
                 f"{key} has a completion marker but its artifacts are missing; rebuilding."

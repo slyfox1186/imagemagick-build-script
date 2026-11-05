@@ -361,7 +361,9 @@ All state lives under `./build/` (override with `BUILD_ROOT=/path`):
   containing the built version and, for git sources, the exact 40-character
   commit. A rerun reuses recorded versions **offline** - no network traffic
   for completed packages - unless you pass `--latest`.
-- To force one package to rebuild: `rm -f -- build/packages/<name>.done`
+- To force one package to rebuild: `rm -f -- build/packages/<name>.done`.
+  Every `[SKIP] ... is already built.` line is followed by that marker's full
+  path on its own line, ready to copy.
 - Markers are only trusted while the package's artifacts still exist; if
   artifacts vanish, the package is repaired at its recorded release (not
   upgraded). A Git release whose tag or HEAD moved upstream since it was
