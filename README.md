@@ -63,6 +63,11 @@ installing the result to `/usr/local`.
 - **Commands never run in the directory you started the build from.** A command
   that needs no particular directory runs in `/`, so a Git repository or Python
   modules there cannot affect the build.
+- **Cache folders in the checkout are deleted automatically** after every
+  build and on `--cleanup`, without asking: `__pycache__/`, `.pytest_cache/`,
+  `.ruff_cache/`, `.mypy_cache/` and `*.egg-info/`, which Python tools recreate
+  when needed. The cleanup prompt now covers only `build/` and old build
+  folders, and nothing inside a build root is ever counted as a cache.
 - Prompts ignore arrow and Home/End key codes and anything typed before the
   question appeared.
 - Single-letter options can be grouped: `-bls` is `-b -l -s`, and `-bj8` is
@@ -391,7 +396,9 @@ All state lives under `./build/` (override with `BUILD_ROOT=/path`):
 - The whole build tree is user-owned; recursive deletion is bounded,
   never crosses filesystems, never escalates to root, and requires a
   path-bound marker (`.magick-build-root`) that a copied or unrelated
-  directory cannot satisfy. `--cleanup` asks before removing anything.
+  directory cannot satisfy. `--cleanup` asks before removing the build root
+  or an old build folder; the checkout's cache folders are deleted without
+  asking, and a symlinked one is never followed.
 - A directory lock prevents two builds from sharing one build root. Starting a
   build stops a competing build that holds the same build root's lock: the
   owner named by the kernel's lock record and its worker processes are pinned
@@ -513,13 +520,14 @@ example (Debian 12, static default):
 
 The link mode row is checked, not assumed: the build fails unless the
 `Modules` feature, the `libMagick*` libraries `magick` loads, and the installed
-coder modules all match the requested mode. The cleanup prompt that follows
-lists what a "yes" deletes, with sizes:
+coder modules all match the requested mode. Cleanup then deletes the
+checkout's cache folders and lists what a "yes" deletes, with sizes:
 
 ```text
+[INFO] Deleted 3 cache folders (1.1 MB).
+
   Cleanup will free 1.7 GB by deleting:
-    build/           1.7 GB  Downloaded sources, compiled libraries and the build log
-    3 cache folders  1.1 MB  Temporary files, safe to delete
+    build/  1.7 GB  Downloaded sources, compiled libraries and the build log
   Your installed ImageMagick and its settings are not affected.
   Answering "no" keeps build/ and makes the next build faster.
 
