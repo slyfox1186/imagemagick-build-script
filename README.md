@@ -68,6 +68,9 @@ installing the result to `/usr/local`.
   `.ruff_cache/`, `.mypy_cache/` and `*.egg-info/`, which Python tools recreate
   when needed. The cleanup prompt now covers only `build/` and old build
   folders, and nothing inside a build root is ever counted as a cache.
+  To keep them while you work on this repository, put
+  `BYPASS_CACHE_DELETE=true` in a `.env` file at the top of the checkout
+  (ignored by Git) or set it in the environment, where it takes precedence.
 - Prompts ignore arrow and Home/End key codes and anything typed before the
   question appeared.
 - Single-letter options can be grouped: `-bls` is `-b -l -s`, and `-bj8` is
