@@ -378,3 +378,31 @@ REQUIREMENTS: tuple[Requirement, ...] = (
     Requirement("fontconfig", "libxml2"),
     Requirement("libtiff", "libjpeg-turbo"),
 )
+
+
+# (consumer, producer) links that are not selection requirements: the consumer
+# picks the producer up when it is enabled. libtiff's configure enables its webp
+# codec when the workspace libwebp is there (libtiff-4.pc then lists it), and
+# libtool installs libltdl, which ImageMagick links for modules and OpenCL.
+LINKED_WHEN_ENABLED: tuple[tuple[str, str], ...] = (
+    ("libtiff", "libwebp"),
+    ("imagemagick", "libtool"),
+)
+
+
+def consumers_of(key: str) -> tuple[str, ...]:
+    """Every package built against `key`, directly or through another, in build order.
+
+    Each consumer comes after what it needs in PACKAGE_LIST (a test pins that),
+    so invalidating them when `key` rebuilds rebuilds them in the same run.
+    """
+    links = [(rule.package, rule.needs) for rule in REQUIREMENTS] + list(LINKED_WHEN_ENABLED)
+    found: set[str] = set()
+    pending = [key]
+    while pending:
+        needed = pending.pop()
+        for consumer, producer in links:
+            if producer == needed and consumer not in found:
+                found.add(consumer)
+                pending.append(consumer)
+    return tuple(name for name in PACKAGE_NAMES if name in found)

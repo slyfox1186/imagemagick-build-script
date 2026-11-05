@@ -1,18 +1,65 @@
-build/
-GPT_PLAN_CRITIQUE.md
+# Project build root (default BUILD_ROOT) and the legacy root name
+/build/
+/magick-build-script/
 
-# Local-only regression tests, developer tools and the retired CI workflow
-/tests/
-/tools/
-/.github/
+# Build state and logs, should a custom BUILD_ROOT sit inside the checkout
+*.done
+*.log
 
-# Local package selection
-/custom.toml
+# Downloaded source archives
+*.tar
+*.tar.bz2
+*.tar.gz
+*.tar.lz
+*.tar.xz
+*.tar.zst
+*.tbz2
+*.tgz
+*.zip
 
-# Python bytecode and tool caches
+# Native build output
+*.a
+*.la
+*.lo
+*.o
+*.so
+*.so.*
+.deps/
+.libs/
+CMakeCache.txt
+CMakeFiles/
+autom4te.cache/
+
+# Python environments, packaging output, bytecode and tool caches
 __pycache__/
 *.py[cod]
+.venv/
+venv/
+dist/
+*.egg-info/
+.eggs/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-*.egg-info/
+.coverage
+coverage.xml
+htmlcov/
+
+# Secrets and local configuration
+.env
+.env.*
+/custom*.toml
+GPT_PLAN_CRITIQUE.md
+
+# Developer-only directories kept out of the published repository
+/.github/
+/tests/
+/tools/
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.sw?
+*~

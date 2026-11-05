@@ -178,15 +178,18 @@ def assert_safe_build_root(candidate: Path, repository_root: Path) -> None:
 # Build context
 # --------------------------------------------------------------------------
 
-# Every input that changes what -march=native and the selected compiler
-# produce, plus the link mode, which decides whether each workspace library is
+# Every input that changes what the selected compiler produces for the CPU
+# target, plus the link mode, which decides whether each workspace library is
 # an archive or a shared object. `package_selection` is recorded only while a
-# config file is active, so a full build keeps the record it always had.
+# config file is active, so a full build keeps the record it always had. The
+# CPU fields are recorded only for a native target: a portable build's code
+# does not depend on the CPU that built it, so its workspace can move.
 CONTEXT_FIELDS = (
     "os",
     "arch",
     "multiarch",
     "cpu_model",
+    "native_cpu",
     "compiler",
     "cflags",
     "cxxflags",
@@ -196,6 +199,12 @@ CONTEXT_FIELDS = (
     "package_selection",
     "recipe",
 )
+
+
+# Fields a record from before they existed lacks. Such a record was written by
+# a native build on the CPU now running (`cpu_model` still has to match), so
+# it is adopted instead of rebuilding every package once.
+ADOPTED_WHEN_ABSENT = ("native_cpu",)
 
 
 def render_build_context(fields: dict[str, str]) -> str:
@@ -227,6 +236,8 @@ def build_context_changes(previous_text: str, current_text: str) -> list[str]:
         return ["the build-context record uses an unknown format"]
     changes: list[str] = []
     for name in CONTEXT_FIELDS:
+        if name in ADOPTED_WHEN_ABSENT and name not in previous and "cpu_model" in previous:
+            continue
         if previous.get(name) != current.get(name):
             before = previous.get(name, "(not recorded)")
             after = current.get(name, "(not recorded)")

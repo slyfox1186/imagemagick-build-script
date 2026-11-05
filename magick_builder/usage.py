@@ -1,91 +1,321 @@
-"""The help screen and version string.
+"""The help screen, the version string, the terminal color policy, and how
+typed answers are read.
 
-Deliberately plain: the launcher imports this module on whatever interpreter
-the user happened to start, which on Ubuntu 22.04 is Python 3.10. `--help` and
-`--version` are answered before any interpreter resolution, so this file must
-parse on every interpreter the project can be launched from and must import
-nothing that does not.
+The launcher imports this module on whatever interpreter the user happened to
+start, which on Ubuntu 22.04 is Python 3.10. `--help` and `--version` are
+answered before any interpreter resolution, so this file must parse on every
+interpreter the project can be launched from and must import nothing that does
+not. The launcher's consent question and the build's prompts share
+`read_answer` for the same reason.
 
-The layout is a contract. `README.md` reproduces it verbatim and the linter
-diffs the two byte for byte.
+The plain layout is a contract. `README.md` reproduces it verbatim and the
+linter diffs the two byte for byte, so the text is wrapped to a fixed WIDTH
+rather than to the terminal. Color is added only on top of that layout: the
+escape codes wrap tokens in place and never change the visible text.
 """
 
 from __future__ import annotations
 
-SCRIPT_VERSION = "3.1.0"
+import contextlib
+import os
+import re
+import sys
+import termios
+import textwrap
+from typing import TextIO
+
+SCRIPT_VERSION = "3.2.0"
 SCRIPT_NAME = "build-magick.py"
+COMMAND = "python3 " + SCRIPT_NAME
 
-LABEL_WIDTH = 27
+WIDTH = 80
+INDENT = "  "
+LABEL_WIDTH = 30
+DESCRIPTION_COLUMN = len(INDENT) + LABEL_WIDTH + 2
 
+SUMMARY = (
+    "Builds ImageMagick 7 and its libraries from source and installs it under "
+    "/usr/local. Run it as a normal user with sudo access. Choose one action; "
+    "with none, this help is shown."
+)
 ACTIONS = (
     ("-b, --build", "Build and install ImageMagick"),
-    ("-l, --latest", "Refresh upstream versions and rebuild outdated packages"),
-    ("-c, --cleanup", "Remove this project's build root and build leftovers"),
+    (
+        "-l, --latest",
+        "Refresh upstream versions and rebuild outdated packages (with --build)",
+    ),
+    ("-c, --cleanup", "Delete the build root and temporary caches"),
 )
-OPTIONS = (
-    ("-h, --help", "Show this help without changing the filesystem"),
+BUILD_OPTIONS = (
+    (
+        "    --config <file>",
+        "Build only the packages this TOML file enables; start from example.toml "
+        "(default: every package)",
+    ),
+    ("    --compiler <gcc|clang>", "Compiler to use (default: gcc)"),
+    ("    --gcc, --clang", "Same as --compiler gcc / --compiler clang"),
+    (
+        "-g, --gcc-version <9-16>",
+        "GCC major version, for GCC builds only (default: newest stable for this OS)",
+    ),
+    (
+        "    --cpu-target <target>",
+        "CPU to optimize for: native, generic, x86-64-v2, x86-64-v3 or x86-64-v4; "
+        "only generic and the levels run on other CPUs (default: native)",
+    ),
+    ("    --generic", "Same as --cpu-target generic"),
+    (
+        "-j, --jobs <count>",
+        "Parallel build jobs; the default keeps 2 GiB of free memory per job "
+        "(default: usable CPUs)",
+    ),
+    (
+        "-s, --shared",
+        "Build shared libraries and coder modules (default: static)",
+    ),
+    ("-d, --debug", "Stream all command output to the terminal; the build log is still written"),
+)
+GENERAL_OPTIONS = (
+    ("-h, --help", "Show this help; changes nothing on disk"),
     ("-v, --version", "Show the script version"),
-    ("    --config <path>", "Load build/package choices from TOML"),
-    ("-j, --jobs <count>", "Set parallel build jobs (default: available CPUs)"),
-    ("-g, --gcc-version <9-16>", "GCC major version (default: newest stable for this OS)"),
-    ("-s, --shared", "Build shared libraries and coder modules (default: static)"),
-    ("-d, --debug", "Stream command output while also logging it"),
 )
-ENVIRONMENT = (("BUILD_ROOT=/path", "Override the default ./build directory"),)
+VALUE_NOTE = (
+    "Options that take a value also accept --option=value, for example --jobs=8. "
+    "Single-letter options can be grouped: -bls is -b -l -s, and -bj8 is -b -j 8."
+)
+ENVIRONMENT = (
+    ("BUILD_ROOT=<dir>", "Build workspace (default: build/ in this checkout)"),
+    ("NO_COLOR=1", "Never color the terminal output"),
+)
+EXAMPLES = (
+    ("Build every package and install ImageMagick", COMMAND + " --build"),
+    (
+        "Build the packages enabled in your config (copy example.toml first)",
+        COMMAND + " --build --config ./custom.toml",
+    ),
+    (
+        "Build with clang on 8 cores as shared libraries",
+        COMMAND + " --build --clang --jobs 8 --shared",
+    ),
+    (
+        "Build a portable ImageMagick that runs on any x86-64-v3 (AVX2) CPU",
+        COMMAND + " --build --cpu-target x86-64-v3",
+    ),
+    (
+        "Update outdated packages to their newest upstream releases with GCC 13",
+        COMMAND + " --build --latest --gcc-version 13",
+    ),
+    ("Start over with an empty workspace", COMMAND + " --cleanup"),
+)
+FOOTER = "Build log: $BUILD_ROOT/build.log    Full guide: README.md"
 
 # Options that take a separate argument. Every walk over the command line skips
 # that argument and stops at `--`, so an option's value is never mistaken for an
 # option: `--config -h` means a file named '-h', not a request for help.
-TAKES_VALUE = frozenset(["--config", "-j", "--jobs", "-g", "--gcc-version"])
+TAKES_VALUE = frozenset(
+    ["--compiler", "--config", "--cpu-target", "-g", "--gcc-version", "-j", "--jobs"]
+)
+# Single-letter flags that can share one dash, as in `-bls`. `-j` and `-g` take
+# a value, so either ends a group: the rest of the group, or else the next
+# argument, is its value (`-bj8`, `-bj 8`, `-bg13`).
+GROUPABLE_FLAGS = frozenset("bclsdhv")
+VALUE_LETTERS = frozenset("jg")
+
+# Line kinds. BODY lines are colored token by token; the others as a whole.
+TITLE, HEADING, BODY, COMMENT = "title", "heading", "body", "comment"
+
+_BOLD = "1"
+_STYLES = {
+    "title": "1;32",
+    "heading": "1;33",
+    "flag": "1;36",
+    "variable": "1;36",
+    "placeholder": "35",
+    "default": "2",
+    "comment": "2",
+}
+# Flags need a non-word character before the dash so hyphenated words such as
+# "x86-64-v3" and "build-magick.py" stay plain.
+_DEFAULT = re.compile(r"\(default: [^)]*\)")
+# textwrap breaks only on ASCII whitespace, so this joins words it must not split.
+_GLUE = "\x00"
+_TOKENS = re.compile(
+    r"(?P<placeholder><[^>\s]+>)"
+    r"|(?P<default>" + _DEFAULT.pattern + r")"
+    r"|(?P<flag>(?<![\w./-])--?[A-Za-z][A-Za-z0-9-]*)"
+    r"|(?P<variable>\$?\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b)"
+)
 
 
-def _row(label: str, description: str) -> str:
-    return "  " + label.ljust(LABEL_WIDTH) + " " + description
+def color_enabled(stream: TextIO) -> bool:
+    """Decide whether `stream` gets ANSI color; the build log applies the same policy."""
+    if os.environ.get("NO_COLOR"):
+        return False
+    if os.environ.get("FORCE_COLOR"):
+        return True
+    if os.environ.get("TERM", "dumb") == "dumb":
+        return False
+    try:
+        return stream.isatty()
+    except (AttributeError, ValueError):
+        return False
 
 
-def usage_text() -> str:
-    lines = [
-        "",
-        "ImageMagick Build Script " + SCRIPT_VERSION,
-        "Usage: " + SCRIPT_NAME + " [options]",
-        "",
-        "Actions:",
-    ]
-    lines += [_row(label, description) for label, description in ACTIONS]
-    lines += ["", "Options:"]
-    lines += [_row(label, description) for label, description in OPTIONS]
-    lines += [
-        "",
-        "Long options also accept --option=value (for example: --jobs=8).",
-        "",
-        "Environment:",
-    ]
-    lines += [_row(label, description) for label, description in ENVIRONMENT]
-    lines += [
-        "",
-        "Examples:",
-        "  python3 " + SCRIPT_NAME + " --build",
-        "  python3 " + SCRIPT_NAME + " --build --latest --jobs 8 --gcc-version 13",
-        "  python3 " + SCRIPT_NAME + " --build --shared",
-        "  python3 " + SCRIPT_NAME + " --build --config ./custom.toml",
-        "",
-    ]
-    return "\n".join(lines) + "\n"
+# CSI sequences (arrows, Home/End, Ctrl+Home is ESC[1;5H), SS3 sequences
+# (ESC O H), other two-byte escapes, then any remaining control character.
+_TERMINAL_KEY_CODE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|O.|[@-_])|[\x00-\x1f\x7f]")
 
 
-def metadata_response(argv: list[str]) -> str | None:
+def read_answer(question: str) -> str:
+    """Ask `question` and return what was typed, without terminal key codes.
+
+    `input()` without readline returns key codes verbatim, so a Home or arrow
+    key turns a visible "no" into an invalid answer. Keys pressed before the
+    question appeared, such as during a long build, are discarded so they can
+    never answer it. EOFError and KeyboardInterrupt reach the caller.
+    """
+    if sys.stdin.isatty():
+        # Best effort: an unflushable stdin still gets the question.
+        with contextlib.suppress(OSError, ValueError, termios.error):
+            termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+    return _TERMINAL_KEY_CODE.sub("", input(question))
+
+
+def _sgr(code: str, text: str) -> str:
+    return "\033[" + code + "m" + text + "\033[0m"
+
+
+def _paint_tokens(text: str) -> str:
+    return _TOKENS.sub(
+        lambda match: _sgr(_STYLES[str(match.lastgroup)], match.group(0)),
+        text,
+    )
+
+
+def _paint(kind: str, text: str) -> str:
+    if not text.strip():
+        return text
+    if kind == TITLE:
+        name, _, version = text.rpartition(" ")
+        return _sgr(_STYLES["title"], name) + " " + _sgr(_BOLD, version)
+    if kind == BODY:
+        return _paint_tokens(text)
+    indent = text[: len(text) - len(text.lstrip())]
+    return indent + _sgr(_STYLES[kind], text.lstrip())
+
+
+def _wrap(text: str, indent: str) -> list[str]:
+    # A "(default: ...)" note moves to the next line whole rather than
+    # splitting, so it reads as one unit and stays one colored token.
+    glued = _DEFAULT.sub(lambda match: match.group(0).replace(" ", _GLUE), text)
+    lines = textwrap.wrap(
+        glued,
+        WIDTH,
+        initial_indent=indent,
+        subsequent_indent=indent,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+    return [line.replace(_GLUE, " ") for line in lines]
+
+
+def _rows(entries: tuple[tuple[str, str], ...]) -> list[tuple[str, str]]:
+    lines: list[tuple[str, str]] = []
+    for label, description in entries:
+        wrapped = _wrap(description, " " * DESCRIPTION_COLUMN)
+        head = (INDENT + label).ljust(DESCRIPTION_COLUMN) + wrapped[0].lstrip()
+        lines.append((BODY, head))
+        lines.extend((BODY, line) for line in wrapped[1:])
+    return lines
+
+
+def _section(title: str, body: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    return [(BODY, ""), (HEADING, title)] + body
+
+
+def help_lines() -> list[tuple[str, str]]:
+    """The help screen as (kind, plain text) pairs."""
+    examples: list[tuple[str, str]] = []
+    for comment, command in EXAMPLES:
+        if examples:
+            examples.append((BODY, ""))
+        examples += [(COMMENT, INDENT + "# " + comment), (BODY, INDENT + command)]
+    return (
+        [(BODY, ""), (TITLE, "ImageMagick Build Script " + SCRIPT_VERSION), (BODY, "")]
+        + [(BODY, "Usage: " + COMMAND + " <action> [options]"), (BODY, "")]
+        + [(BODY, line) for line in _wrap(SUMMARY, INDENT)]
+        + _section("Actions:", _rows(ACTIONS))
+        + _section("Build options:", _rows(BUILD_OPTIONS))
+        + _section("General options:", _rows(GENERAL_OPTIONS))
+        + [(BODY, "")]
+        + [(BODY, line) for line in _wrap(VALUE_NOTE, INDENT)]
+        + _section("Environment variables:", _rows(ENVIRONMENT))
+        + _section("Examples:", examples)
+        + [(BODY, ""), (BODY, FOOTER), (BODY, "")]
+    )
+
+
+def usage_text(color: bool = False) -> str:
+    return "".join((_paint(kind, text) if color else text) + "\n" for kind, text in help_lines())
+
+
+def expand_short_options(argv: list[str]) -> list[str]:
+    """Split grouped single-letter options: `-bls` becomes `-b -l -s`.
+
+    Every walk over the command line expands first, so `-bh` shows help just as
+    `-b -h` does. An option's value is never split, `--` ends expansion, and a
+    group holding an unknown letter stays whole so its error names what was
+    typed.
+    """
+    expanded: list[str] = []
+    index = 0
+    while index < len(argv):
+        argument = argv[index]
+        index += 1
+        if argument == "--":
+            expanded.extend(argv[index - 1 :])
+            break
+        if argument in TAKES_VALUE:
+            expanded.extend(argv[index - 1 : index + 1])
+            index += 1
+            continue
+        if len(argument) < 3 or argument[0] != "-" or argument[1] == "-":
+            expanded.append(argument)
+            continue
+        group: list[str] = []
+        for position, letter in enumerate(argument[1:], start=1):
+            if letter in VALUE_LETTERS:
+                # The rest of the group is the value; with none, the next
+                # argument is, and it must not be expanded in turn.
+                value = argument[position + 1 :]
+                if value:
+                    group += ["-" + letter, value]
+                else:
+                    group += ["-" + letter, *argv[index : index + 1]]
+                    index += 1
+                break
+            if letter not in GROUPABLE_FLAGS:
+                group = [argument]
+                break
+            group.append("-" + letter)
+        expanded.extend(group)
+    return expanded
+
+
+def metadata_response(argv: list[str], color: bool = False) -> str | None:
     """Answer `--help`/`--version`, or return None when neither was requested.
 
     This walk runs before the interpreter is resolved, so on that path it is
     the only thing standing between `-- -h` and a help screen.
     """
+    argv = expand_short_options(argv)
     index = 0
     while index < len(argv):
         argument = argv[index]
         if argument == "--":
             return None
         if argument in ("-h", "--help"):
-            return usage_text()
+            return usage_text(color)
         if argument in ("-v", "--version"):
             return SCRIPT_VERSION + "\n"
         if argument in TAKES_VALUE:

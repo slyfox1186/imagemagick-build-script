@@ -29,7 +29,13 @@ from .logging import Logger, format_duration
 # Supported hosts provide the bootstrap toolchain in these administrator-
 # controlled locations. Starting from a deterministic base prevents an
 # unrelated user-local executable from silently replacing a build tool.
-BASE_PATH = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin"
+# The conventional order puts /usr/local first, so a compiler the administrator
+# installed there wins over the distribution's.
+BASE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# The working directory of every command that needs no particular one. The
+# invocation directory could hold a Git repository whose config redirects
+# fetches, or Python modules that `-m` and `-c` import first.
+NEUTRAL_DIRECTORY = "/"
 
 # Variables a build legitimately needs from the invoking session. Everything
 # else is dropped, including every variable a Python environment manager sets.
@@ -166,6 +172,34 @@ def managed_process(
                 stream.close()
 
 
+CANCELLATION_SIGNALS = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
+
+
+@contextmanager
+def defer_cancellation() -> Iterator[list[str]]:
+    """Hold off cancellation while a recovery must run to its end.
+
+    Yields the names of the signals that arrived. The handler only records
+    them: logging from a signal handler can re-enter a buffered stream. The
+    terminal's Ctrl+C still reaches a foreground sudo command directly, so a
+    step can fail; the caller then continues with the next step.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        yield []
+        return
+    received: list[str] = []
+
+    def record(signal_number: int, _frame: object) -> None:
+        received.append(signal.Signals(signal_number).name)
+
+    previous = {number: signal.signal(number, record) for number in CANCELLATION_SIGNALS}
+    try:
+        yield received
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+
+
 class Runner:
     """Runs commands with this project's logging and environment behavior."""
 
@@ -261,7 +295,7 @@ class Runner:
         self.logger.run(command_display, arguments=arguments, quiet=quiet, shown=display)
         started = self.logger.elapsed_seconds
         environment = self.child_environment(env_overrides)
-        working_directory = str(cwd) if cwd is not None else None
+        working_directory = str(cwd) if cwd is not None else NEUTRAL_DIRECTORY
 
         if self.debug and self.log_file is not None:
             exit_code = self._run_teed(arguments, working_directory, environment, stdin_text)
@@ -375,7 +409,7 @@ class Runner:
         try:
             with managed_process(
                 arguments,
-                cwd=str(cwd) if cwd is not None else None,
+                cwd=str(cwd) if cwd is not None else NEUTRAL_DIRECTORY,
                 env=self.child_environment(env_overrides),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -406,7 +440,9 @@ class Runner:
             raise BuildError("This script requires 'sudo' (run on a system with sudo configured).")
         # Prompt once up front; failing mid-build after an hour of compiling is
         # a worse experience than a password prompt before any work starts.
-        completed = subprocess.run(["sudo", "-v"], env=self.child_environment(), check=False)
+        completed = subprocess.run(
+            ["sudo", "-v"], env=self.child_environment(), check=False, cwd=NEUTRAL_DIRECTORY
+        )
         if completed.returncode != 0:
             raise BuildError("Unable to validate 'sudo' credentials.")
         self.start_sudo_keepalive()
@@ -418,8 +454,11 @@ class Runner:
         `timestamp_timeout`, 15 minutes by default) and every later step
         prompts again in the middle of a compile.
         """
-        if self._keepalive_thread is not None:
+        if self._keepalive_thread is not None and self._keepalive_thread.is_alive():
             return
+        # A thread that stopped after a refused refresh is replaced, so a
+        # later `require_sudo` keeps the new credential fresh too.
+        self._keepalive_stop.clear()
 
         def refresh() -> None:
             while not self._keepalive_stop.wait(50):
@@ -453,6 +492,7 @@ def notify_failure(message: str) -> None:
     try:
         subprocess.run(
             ["notify-send", "-t", "5000", "--", message],
+            cwd=NEUTRAL_DIRECTORY,
             capture_output=True,
             check=False,
             timeout=5,

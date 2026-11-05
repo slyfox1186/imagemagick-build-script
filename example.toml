@@ -5,6 +5,8 @@
 #   [build]
 #   [packages]
 #   key = true|false
+#   compiler = "gcc"|"clang", cpu_target = "<target>" and gcc_version = <N>
+#   (only in [build])
 #
 # Package entries are an explicit allowlist: an omitted key is DISABLED.
 # This file lists every supported key set to true, which reproduces the
@@ -31,6 +33,23 @@
 # the next run - no manual cleanup is needed.
 
 [build]
+# C/C++ compiler family. --compiler (or --gcc/--clang) overrides this value.
+compiler = "gcc"
+
+# GCC major version for GCC builds; omitted means the newest stable GCC of
+# this OS release. --gcc-version overrides it. Not used with clang.
+# gcc_version = 14
+
+# CPU the build is optimized for. "native" tunes for this machine's CPU and
+# the result may not run on others; "generic" runs on any x86-64 CPU; an
+# x86-64-vN level runs on any CPU that implements it. --cpu-target (or
+# --generic) overrides this value.
+cpu_target = "native"
+
+# Build shared libraries and coder modules instead of the static default.
+# The --shared command-line flag turns this on for one run.
+shared = false
+
 # Recheck upstream releases and rebuild components whose recorded versions
 # differ. The --latest command-line flag turns this on for one run.
 latest = false

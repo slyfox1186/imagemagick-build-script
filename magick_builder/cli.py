@@ -15,9 +15,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from .config import COMPILERS, CPU_TARGET_CHOICES, CPU_TARGETS, GCC_MAX_VERSION, GCC_MIN_VERSION
 from .runtime.errors import UsageError
 from .runtime.settings import MAX_PROCESS_INTEGER, parse_integer
-from .usage import SCRIPT_NAME, SCRIPT_VERSION, usage_text
+from .usage import SCRIPT_NAME, SCRIPT_VERSION, color_enabled, expand_short_options, usage_text
 
 __all__ = [
     "GCC_MAX_VERSION",
@@ -25,13 +26,11 @@ __all__ = [
     "Arguments",
     "SCRIPT_NAME",
     "SCRIPT_VERSION",
+    "color_enabled",
     "parse_arguments",
     "resolve_config_path",
     "usage_text",
 ]
-
-GCC_MIN_VERSION = 9
-GCC_MAX_VERSION = 16
 
 
 class Arguments:
@@ -41,6 +40,8 @@ class Arguments:
         self.build = False
         self.cleanup = False
         self.jobs: int | None = None
+        self.compiler: str | None = None
+        self.cpu_target: str | None = None
         self.gcc_version: int | None = None
         self.latest = False
         self.shared = False
@@ -56,6 +57,7 @@ def _value(argv: list[str], index: int, option: str) -> str:
 
 def parse_arguments(argv: list[str]) -> Arguments:
     arguments = Arguments()
+    argv = expand_short_options(argv)
     index = 0
     while index < len(argv):
         argument = argv[index]
@@ -76,6 +78,16 @@ def parse_arguments(argv: list[str]) -> Arguments:
             value = inline if separator else _value(argv, index, option)
             index += 0 if separator else 1
             arguments.jobs = _parse_jobs(value)
+        elif argument in ("--gcc", "--clang"):
+            arguments.compiler = argument.removeprefix("--")
+        elif option == "--compiler":
+            arguments.compiler = inline if separator else _value(argv, index, option)
+            index += 0 if separator else 1
+        elif argument == "--generic":
+            arguments.cpu_target = "generic"
+        elif option == "--cpu-target":
+            arguments.cpu_target = inline if separator else _value(argv, index, option)
+            index += 0 if separator else 1
         elif option in ("-g", "--gcc-version"):
             value = inline if separator else _value(argv, index, option)
             index += 0 if separator else 1
@@ -99,6 +111,14 @@ def parse_arguments(argv: list[str]) -> Arguments:
             raise UsageError(f"Unknown option '{argument}'.")
         index += 1
 
+    if arguments.compiler is not None and arguments.compiler not in COMPILERS:
+        raise UsageError(f"Invalid compiler '{arguments.compiler}'; expected 'gcc' or 'clang'.")
+    if arguments.cpu_target is not None and arguments.cpu_target not in CPU_TARGETS:
+        raise UsageError(
+            f"Invalid CPU target '{arguments.cpu_target}'; expected {CPU_TARGET_CHOICES}."
+        )
+    if arguments.compiler == "clang" and arguments.gcc_version is not None:
+        raise UsageError("'--gcc-version' applies only to GCC builds, not '--clang'.")
     if arguments.build and arguments.cleanup:
         raise UsageError("'--build' and '--cleanup' are mutually exclusive.")
     return arguments

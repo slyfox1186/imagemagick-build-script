@@ -11,13 +11,14 @@ successful HTTP responses still require archive validation.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import posixpath
 import re
 import tarfile
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from enum import Enum, auto
 from pathlib import Path
 
@@ -64,6 +65,23 @@ class DownloadSettings:
         self.retry = positive("DOWNLOAD_RETRY", 5)
         self.retry_delay = positive("DOWNLOAD_RETRY_DELAY", 5)
         self.lock_timeout = positive("DOWNLOAD_LOCK_TIMEOUT", 1800)
+
+    def replace(self, **overrides: int) -> DownloadSettings:
+        clone = DownloadSettings({})
+        clone.__dict__.update(self.__dict__)
+        clone.__dict__.update(overrides)
+        return clone
+
+
+# For a first download attempt that has a fallback behind it: give up quickly
+# rather than wait out the default half-hour transfer timeout on a host that is
+# down. Small source archives only.
+QUICK_MIRROR_SETTINGS = {
+    "connect_timeout": 3,
+    "max_time": 45,
+    "retry": 0,
+    "retry_delay": 3,
+}
 
 
 def https_curl_arguments(
@@ -550,6 +568,16 @@ class Downloader:
             raise BuildError(f"Failed to download and extract '{url}'.")
         return source
 
+    @contextlib.contextmanager
+    def temporary_settings(self, **overrides: int) -> Iterator[None]:
+        """Tighten transfer limits for attempts that have another behind them."""
+        previous = self.settings
+        self.settings = previous.replace(**overrides)
+        try:
+            yield
+        finally:
+            self.settings = previous
+
     def download_with_fallback(self, primary_url: str, fallback_url: str) -> Path:
         """Prefer the primary mirror, fall back to a second one.
 
@@ -560,7 +588,8 @@ class Downloader:
         """
         archive_file = primary_url.rsplit("/", 1)[-1].split("?", 1)[0]
         self.logger.debug(f"Attempting download from primary mirror: '{primary_url}'.")
-        source = self.try_download(primary_url, archive_file)
+        with self.temporary_settings(**QUICK_MIRROR_SETTINGS):
+            source = self.try_download(primary_url, archive_file)
         if source is not None:
             return source
         self.logger.warn(f"Primary mirror failed, trying fallback mirror: '{fallback_url}'.")

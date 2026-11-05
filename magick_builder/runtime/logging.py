@@ -17,7 +17,6 @@ Colors are the standard ANSI set so they follow the terminal's own theme.
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import sys
@@ -26,6 +25,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TextIO
 
+from ..usage import color_enabled, read_answer
 from . import shellquote
 
 # Wrapped command arguments hang this far in, clear of the `$ ` prompt, so a
@@ -70,16 +70,6 @@ def _is_terminal(stream: TextIO) -> bool:
         return stream.isatty()
     except (AttributeError, ValueError):
         return False
-
-
-def _color_enabled(stream: TextIO) -> bool:
-    if os.environ.get("NO_COLOR"):
-        return False
-    if os.environ.get("FORCE_COLOR"):
-        return True
-    if os.environ.get("TERM", "dumb") == "dumb":
-        return False
-    return _is_terminal(stream)
 
 
 class Palette:
@@ -168,11 +158,15 @@ class Logger:
     def __init__(self, *, debug: bool = False) -> None:
         self.debug_enabled = debug
         self.log_file: Path | None = None
+        # Records from before `attach_log`: the request, sudo and context checks
+        # run before the old log may be truncated, and what they report belongs
+        # in the new one.
+        self._pending: list[str] = []
         self._started = time.monotonic()
         self._out = sys.stdout
         self._err = sys.stderr
-        self.out_palette = Palette(_color_enabled(sys.stdout))
-        self.err_palette = Palette(_color_enabled(sys.stderr))
+        self.out_palette = Palette(color_enabled(sys.stdout))
+        self.err_palette = Palette(color_enabled(sys.stderr))
         # Both streams share one screen, so one flag tracks whether the last
         # visible line was blank; separators never stack into double gaps.
         self._after_blank = True
@@ -280,14 +274,26 @@ class Logger:
     def _tag(self, level: str) -> Fragment:
         return (_TAGS.get(level, f"[{level}]"), _TAG_COLOR.get(level, ""), level in _BOLD_TAGS)
 
+    def attach_log(self, path: Path) -> None:
+        """Write to `path` from now on, starting with the records logged before it."""
+        self.log_file = path
+        pending, self._pending = self._pending, []
+        self._append(pending)
+
     def write_log_records(self, level: str, lines: list[str], elapsed: str) -> None:
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        records = [f"{stamp} [{elapsed}] {level:<5} {text}\n" for text in lines]
+        if self.log_file is None:
+            self._pending.extend(records)
+            return
+        self._append(records)
+
+    def _append(self, records: list[str]) -> None:
         if self.log_file is None or not self.log_file.is_file():
             return
-        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
         try:
             with self.log_file.open("a", encoding="utf-8") as handle:
-                for text in lines:
-                    handle.write(f"{stamp} [{elapsed}] {level:<5} {text}\n")
+                handle.writelines(records)
         except OSError:
             # A log that cannot be written must not take the build down; the
             # terminal copy of every record has already been printed.
@@ -316,13 +322,16 @@ class Logger:
         for index, text in enumerate(message.splitlines() or [""]):
             if index == 0:
                 self._emit(self._tag(level), self._text_parts(text), stream=stream)
-            else:
-                self._emit(
-                    None,
-                    self._text_parts(text),
-                    stream=stream,
-                    indent=len(self._tag(level)[0]) + 1,
-                )
+                continue
+            # A wrapped follow-up line hangs under its own indented text, so
+            # an indented row reads as one.
+            body = text.lstrip(" ")
+            self._emit(
+                None,
+                self._text_parts(body),
+                stream=stream,
+                indent=len(self._tag(level)[0]) + 1 + len(text) - len(body),
+            )
         self._record(level, message)
 
     def _command(
@@ -448,6 +457,19 @@ class Logger:
     def info(self, message: str) -> None:
         self.line("INFO", message)
 
+    def compiler(self, label: str, banner: str, location: str) -> None:
+        """A selected compiler's version banner, highlighted like a package name."""
+        self._emit(
+            self._tag("INFO"),
+            [
+                (f"{label}: '", "", False),
+                (banner, "yellow", True),
+                ("' ", "", False),
+                *self._text_parts(f"({location})."),
+            ],
+        )
+        self._record("INFO", f"{label}: '{banner}' ({location}).")
+
     def get(self, url: str, filename: str = "", note: str = "") -> None:
         if note:
             self.line("INFO", f"{url} {note}.")
@@ -505,7 +527,9 @@ class Logger:
         palette = self.out_palette
         text, style, bold = self._tag("PROMPT")
         self._blank()
-        answer = input(f"{palette.paint(getattr(palette, style), text, bold=bold)} {question}")
+        answer = read_answer(
+            f"{palette.paint(getattr(palette, style), text, bold=bold)} {question}"
+        )
         self._after_blank = False
         self._record("PROMPT", f"{question}{answer}")
         return answer

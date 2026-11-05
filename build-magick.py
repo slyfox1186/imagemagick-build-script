@@ -11,8 +11,12 @@ interpreter resolution, because they are contractually free of side effects and
 resolving an interpreter can mean creating an environment and asking a
 question.
 
-When Conda is available the build always runs in the Conda environment; a
-system interpreter is used only on hosts without Conda.
+Conda is optional and never required. The interpreter running this launcher
+is used when it is a stable Python 3.12 or newer. Otherwise an existing
+`install-imagemagick` Conda environment (created earlier with the user's
+consent) or the newest stable compatible system interpreter runs the build.
+Creating the environment is offered only when no compatible interpreter exists
+and Conda is already installed; declining leaves the host untouched.
 """
 
 from __future__ import annotations
@@ -44,6 +48,11 @@ REPOSITORY_ROOT = os.path.dirname(os.path.realpath(__file__))
 SYSTEM_PYTHON_NAME = re.compile(r"^python3(\.[0-9]+)?$")
 
 
+def is_compatible(version: tuple[int, int, bool]) -> bool:
+    """New enough, and a final release rather than an alpha, beta or candidate."""
+    return version[:2] >= REQUIRED_VERSION and version[2]
+
+
 def interpreter_version(executable: str) -> tuple[int, int, bool] | None:
     """Report (major, minor, is_final_release) without importing anything from it."""
     try:
@@ -53,6 +62,8 @@ def interpreter_version(executable: str) -> tuple[int, int, bool] | None:
                 "-c",
                 "import sys; print('%d.%d %s' % (sys.version_info[:2] + (sys.version_info[3],)))",
             ],
+            # `-c` imports from the working directory first.
+            cwd="/",
             capture_output=True,
             text=True,
             check=False,
@@ -83,8 +94,10 @@ def ask_consent(question: str) -> bool:
     """
     if not sys.stdin.isatty():
         return False
+    from magick_builder.usage import read_answer
+
     try:
-        answer = input(question)
+        answer = read_answer(question)
     except (EOFError, KeyboardInterrupt):
         print()
         return False
@@ -139,7 +152,7 @@ def conda_create_command(root: str) -> list[str]:
 
 def create_conda_environment(root: str) -> bool:
     print("Creating the '%s' conda environment..." % CONDA_ENVIRONMENT)
-    created = subprocess.run(conda_create_command(root), check=False)
+    created = subprocess.run(conda_create_command(root), check=False, cwd="/")
     python = environment_python(root)
     if created.returncode != 0:
         sys.stderr.write("Could not create the '%s' conda environment.\n" % CONDA_ENVIRONMENT)
@@ -153,8 +166,12 @@ def create_conda_environment(root: str) -> bool:
     return True
 
 
-def resolve_conda_interpreter(roots: list[str]) -> str | None:
-    """Return the Conda environment's interpreter, or None after explaining why not."""
+def existing_conda_interpreter(roots: list[str]) -> str | None:
+    """The usable interpreter of an existing environment, never prompting.
+
+    An environment that is too old or cannot be inspected is reported with its
+    remedy and skipped, so a compatible system interpreter can still run.
+    """
     required = "%d.%d" % REQUIRED_VERSION
     for root in roots:
         python = environment_python(root)
@@ -162,16 +179,20 @@ def resolve_conda_interpreter(roots: list[str]) -> str | None:
             continue
         version = interpreter_version(python)
         if version is None:
-            sys.stderr.write("Could not determine the Python version of %s.\n" % python)
-            return None
-        if version[:2] < REQUIRED_VERSION:
             sys.stderr.write(
-                "The '%s' conda environment has Python %d.%d; this project needs %s or newer.\n"
-                "Remove it so this script can recreate it:\n  %s\n"
+                "Could not determine the Python version of %s; skipping it.\n" % python
+            )
+            continue
+        if not is_compatible(version):
+            sys.stderr.write(
+                "The '%s' conda environment has Python %d.%d%s; this project needs a final\n"
+                "release of %s or newer. It is skipped. Remove it so this script can offer to\n"
+                "recreate it:\n  %s\n"
                 % (
                     CONDA_ENVIRONMENT,
                     version[0],
                     version[1],
+                    "" if version[2] else " (a pre-release)",
                     required,
                     shlex.join(
                         [
@@ -185,23 +206,39 @@ def resolve_conda_interpreter(roots: list[str]) -> str | None:
                     ),
                 )
             )
-            return None
+            continue
         return python
-    root = roots[0]
-    question = "Create conda environment '%s' (python=%s)? [y/N]: " % (
-        CONDA_ENVIRONMENT,
-        CONDA_PYTHON_VERSION,
+    return None
+
+
+def offer_conda_environment(root: str) -> str | None:
+    """Create the environment with consent; only used when no interpreter fits."""
+    question = (
+        "No Python %d.%d or newer was found. Create the conda environment '%s' "
+        "(python=%s from %s)? [y/N]: "
+        % (REQUIRED_VERSION + (CONDA_ENVIRONMENT, CONDA_PYTHON_VERSION, CONDA_CHANNEL))
     )
     if not ask_consent(question):
+        report_missing_interpreter()
         sys.stderr.write(
-            "Conda is available, so this project runs in the '%s' conda environment.\n"
-            "Create it by answering yes interactively, or run:\n  %s\n"
-            % (CONDA_ENVIRONMENT, shlex.join(conda_create_command(root)))
+            "Or let this script use Conda: answer yes interactively, or run:\n  %s\n"
+            % shlex.join(conda_create_command(root))
         )
         return None
     if not create_conda_environment(root):
         return None
     return environment_python(root)
+
+
+def running_interpreter_is_compatible() -> bool:
+    """True when the Python running this launcher can run the build itself."""
+    return (
+        isinstance(sys.executable, str)
+        and sys.executable != ""
+        and is_compatible(
+            (sys.version_info[0], sys.version_info[1], sys.version_info[3] == "final")
+        )
+    )
 
 
 def resolve_system_interpreter() -> str | None:
@@ -226,7 +263,7 @@ def resolve_system_interpreter() -> str | None:
             continue
         seen.add(real)
         version = interpreter_version(candidate)
-        if version is None or not version[2] or version[:2] < REQUIRED_VERSION:
+        if version is None or not is_compatible(version):
             continue
         if best is None or version[:2] > best[0]:
             best = (version[:2], candidate)
@@ -234,19 +271,21 @@ def resolve_system_interpreter() -> str | None:
 
 
 def report_missing_interpreter() -> None:
+    """Explain the requirement without assuming any particular Python distribution."""
     required = "%d.%d" % REQUIRED_VERSION
     sys.stderr.write(
-        "This project needs Python %s or newer, and no conda installation or compatible\n"
-        "system interpreter was found (this launcher is running on Python %d.%d).\n"
-        "Install Miniconda at ~/miniconda3 so this script can create the '%s'\n"
-        "conda environment, or install Python %s or newer.\n"
-        "On Ubuntu 22.04 and Debian 12, 'python3' is older than %s.\n"
+        "This project needs Python %s or newer, and no compatible interpreter was found\n"
+        "(this launcher is running on Python %d.%d). Install Python %s or newer in any way\n"
+        "you prefer (your distribution's packages, python.org, pyenv, uv or Conda), then\n"
+        "run this script with it, for example: python3.%d %s --build\n"
+        "On Ubuntu 22.04 and Debian 12, the default 'python3' is older than %s.\n"
         % (
             required,
             sys.version_info[0],
             sys.version_info[1],
-            CONDA_ENVIRONMENT,
             required,
+            REQUIRED_VERSION[1],
+            os.path.basename(__file__),
             required,
         )
     )
@@ -259,22 +298,33 @@ def reexec(interpreter: str, argv: list[str]) -> None:
 
 
 def resolve_interpreter() -> str | None:
+    """This interpreter, else an existing Conda environment, else system Python.
+
+    Creating a Conda environment is only ever offered, never required, and only
+    when Conda is installed and nothing else can run the build.
+    """
+    if running_interpreter_is_compatible():
+        return sys.executable
     roots = conda_roots()
-    if roots:
-        return resolve_conda_interpreter(roots)
+    interpreter = existing_conda_interpreter(roots)
+    if interpreter is not None:
+        return interpreter
     interpreter = resolve_system_interpreter()
-    if interpreter is None:
-        report_missing_interpreter()
-    return interpreter
+    if interpreter is not None:
+        return interpreter
+    if roots:
+        return offer_conda_environment(roots[0])
+    report_missing_interpreter()
+    return None
 
 
 def main(argv: list[str]) -> int:
     if REPOSITORY_ROOT not in sys.path:
         sys.path.insert(0, REPOSITORY_ROOT)
 
-    from magick_builder.usage import metadata_response
+    from magick_builder.usage import color_enabled, metadata_response
 
-    answer = metadata_response(argv or ["--help"])
+    answer = metadata_response(argv or ["--help"], color_enabled(sys.stdout))
     if answer is not None:
         sys.stdout.write(answer)
         return 0

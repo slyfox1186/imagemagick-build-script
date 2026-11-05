@@ -13,14 +13,26 @@ from .cli import (
     SCRIPT_NAME,
     SCRIPT_VERSION,
     Arguments,
+    color_enabled,
     parse_arguments,
     resolve_config_path,
     usage_text,
 )
 from .config import BuildSettings, Selection, load_config
+from .runtime.build_lock import take_over_build_lock
 from .runtime.context import BuildContext, link_mode
 from .runtime.errors import ISSUE_TRACKER_URL, REPOSITORY_URL, BuildError, SignalStop, UsageError
 from .runtime.exec import Runner, base_environment, notify_failure
+from .runtime.host import (
+    cgroup_cpu_limit,
+    format_gib,
+    isa_level_rank,
+    plan_jobs,
+    read_cpu,
+    read_memory,
+    target_isa_level,
+    usable_threads,
+)
 from .runtime.logging import Fragment, Logger, format_duration, format_size
 from .runtime.paths import (
     DirectoryLock,
@@ -187,6 +199,17 @@ def cleanup_summary(
 WORKSPACE_RECIPE_REVISION = "3"
 
 
+def legacy_cpu_model(cpuinfo: Path = Path("/proc/cpuinfo")) -> str:
+    """The first `model name`, exactly as releases before the CPU targets recorded it."""
+    try:
+        for line in cpuinfo.read_text(encoding="utf-8").splitlines():
+            if line.startswith("model name"):
+                return line.split(": ", 1)[-1]
+    except OSError:
+        pass
+    return ""
+
+
 class Orchestrator:
     def __init__(self, repo_root: Path, argv: list[str]) -> None:
         self.repo_root = repo_root
@@ -231,6 +254,7 @@ class Orchestrator:
         )
 
     def acquire_lock(self, root: Path) -> DirectoryLock:
+        """The lock of a build root this run only inspects or deletes; never a takeover."""
         lock = DirectoryLock(root)
         if lock.acquire():
             return lock
@@ -245,6 +269,17 @@ class Orchestrator:
             )
         raise BuildError(f"Another build is already running in '{root}'.")
 
+    def take_over_lock(self, root: Path) -> DirectoryLock:
+        """The build root's lock for a new build, stopping a competing build that holds it.
+
+        Only the kernel-recorded owner of this exact directory's lock and its
+        descendants are stopped, and only when they run as this user.
+        """
+        lock = DirectoryLock(root)
+        if not take_over_build_lock(lock, self.logger):
+            raise BuildError(f"Another process is already using the build root '{root}'.")
+        return lock
+
     def initialize_build_root(self) -> None:
         root = self.build_root
         self.validate_build_root()
@@ -257,7 +292,7 @@ class Orchestrator:
             raise BuildError(f"Unable to create the build root '{root}'.") from error
         if not os.access(root, os.R_OK | os.W_OK | os.X_OK):
             raise BuildError(f"The build root '{root}' is not writable by the current user.")
-        self._lock = self.acquire_lock(root)
+        self._lock = self.take_over_lock(root)
         self._lock.assert_current()
         self.validate_build_root()
 
@@ -277,32 +312,31 @@ class Orchestrator:
             legacy_lock.unlink()
         (root / "packages").mkdir(exist_ok=True)
         (root / "workspace").mkdir(exist_ok=True)
-        log_file = root / "build.log"
+
+    def start_build_log(self) -> None:
+        """Start this run's log, beginning with what was reported before it.
+
+        Called only once the request, the toolchain environment and sudo have
+        passed, so a run those checks stop leaves the previous log as it was.
+        APT and the compiler checks come after it, so their output is logged.
+        """
+        log_file = self.build_root / "build.log"
         log_file.write_text("", encoding="utf-8")
-        self.logger.log_file = log_file
+        self.logger.attach_log(log_file)
         self.runner.log_file = log_file
 
     # -- build context ---------------------------------------------------
 
     def current_build_context(self, context: BuildContext) -> str:
-        """Every input that changes what -march=native and the compiler produce."""
+        """Every input that changes what the compiler produces for the CPU target."""
         env = context.env
         compiler = env["CC"]
         path = context.runner.which(compiler) or compiler
         version = context.runner.capture([compiler, "--version"]).stdout.split("\n", 1)[0]
-        cpu_model = ""
-        try:
-            for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
-                if line.startswith("model name"):
-                    cpu_model = line.split(": ", 1)[-1]
-                    break
-        except OSError:
-            pass
         fields = {
             "os": f"{context.operating_system} {context.release_version}",
             "arch": os.uname().machine,
             "multiarch": context.multiarch,
-            "cpu_model": cpu_model,
             "compiler": f"{path} {version}",
             "cflags": env["CFLAGS"],
             "cxxflags": env["CXXFLAGS"],
@@ -311,6 +345,12 @@ class Orchestrator:
             "link_mode": link_mode(context),
             "recipe": WORKSPACE_RECIPE_REVISION,
         }
+        if context.cpu_target == "native":
+            # `-march=native` code runs only on CPUs like this one: the model
+            # decides `-mtune`, the extension set which instructions are used.
+            fields["cpu_model"] = legacy_cpu_model()
+            if context.host_cpu is not None:
+                fields["native_cpu"] = context.host_cpu.identity
         if context.selection.has_config:
             # A selection change invalidates everything: configure probes see
             # whatever the workspace holds.
@@ -335,8 +375,8 @@ class Orchestrator:
                     "marker and the workspace so everything rebuilds consistently:\n"
                     + "\n".join(changes)
                 )
-                for marker in context.packages.glob("*.done"):
-                    marker.unlink(missing_ok=True)
+                for record in (*context.packages.glob("*.done"), *context.packages.glob("*.pin")):
+                    record.unlink(missing_ok=True)
                 safe_remove_tree(context.workspace, context.cwd)
                 context.workspace.mkdir()
             elif parse_build_context(previous).get("schema") == "1":
@@ -451,7 +491,10 @@ class Orchestrator:
         for target in targets:
             if target.name in LEGACY_BUILD_ROOT_NAMES:
                 assert_safe_build_root(target, repository)
-                with self.acquire_lock(target) as lock:
+                with DirectoryLock(target) as lock:
+                    if not lock.acquire():
+                        self.logger.warn(f"Leaving '{target}' in place: another build is using it.")
+                        continue
                     lock.assert_current()
                     if not (
                         build_root_marker_matches(target / BUILD_ROOT_MARKER_NAME, target)
@@ -488,26 +531,87 @@ class Orchestrator:
     def build_context(
         self, arguments: Arguments, settings: BuildSettings, selection: Selection
     ) -> BuildContext:
-        # The affinity mask, not the CPU count: under `taskset -c 0,1` a host
-        # with 24 cores must launch 2 compile jobs, not 24.
-        threads = arguments.jobs or len(os.sched_getaffinity(0))
+        """Settle the request; everything checkable from it fails here, before sudo."""
+        machine = os.uname().machine
+        if machine != "x86_64":
+            raise BuildError(f"Unsupported architecture '{machine}'. Only x86_64 is supported.")
+        compiler = arguments.compiler or settings.compiler
+        gcc_version = arguments.gcc_version
+        if gcc_version is None and compiler == "gcc":
+            gcc_version = settings.gcc_version
+        if compiler == "clang" and gcc_version is not None:
+            raise UsageError("'--gcc-version' applies only to GCC builds, not compiler 'clang'.")
+        if compiler == "clang" and settings.gcc_version is not None:
+            self.logger.warn(
+                f"Ignoring the config's gcc_version = {settings.gcc_version}: this build uses Clang."
+            )
+        cpu_target = arguments.cpu_target or settings.cpu_target
+        host_cpu = read_cpu()
+        required = target_isa_level(cpu_target)
+        if cpu_target != "native" and isa_level_rank(required) > isa_level_rank(host_cpu.isa_level):
+            # Configure tests, build tools and the installed-program checks all
+            # execute what this build compiles, so it has to run here too.
+            raise BuildError(
+                f"This CPU supports up to {host_cpu.isa_level}; a '{cpu_target}' build cannot "
+                "run its own configure tests and validation here."
+            )
+        if cpu_target.startswith("x86-64-v") and gcc_version is not None and gcc_version < 11:
+            raise UsageError(
+                f"GCC {gcc_version} cannot target '{cpu_target}'; the x86-64 microarchitecture "
+                "levels need GCC 11 or newer. Choose a newer --gcc-version, or --cpu-target "
+                "generic."
+            )
+        host_memory = read_memory()
+        jobs = plan_jobs(arguments.jobs, usable_threads(), cgroup_cpu_limit(), host_memory)
         self.context = BuildContext(
             repo_root=self.repo_root,
             build_root=self.build_root,
             logger=self.logger,
             runner=self.runner,
             selection=selection,
-            build_threads=threads,
+            build_threads=jobs.jobs,
             latest=arguments.latest or settings.latest,
-            shared=arguments.shared,
-            gcc_version=arguments.gcc_version,
+            shared=arguments.shared or settings.shared,
+            gcc_version=gcc_version,
+            compiler=compiler,
+            cpu_target=cpu_target,
+            host_cpu=host_cpu,
+            host_memory=host_memory,
+            jobs_reason=jobs.reason,
         )
         return self.context
 
+    def report_host(self, context: BuildContext) -> None:
+        cpu = context.host_cpu
+        if cpu is not None:
+            self.logger.info(
+                f"CPU: {cpu.model_name} ({usable_threads()} usable threads, {cpu.isa_level})."
+            )
+        if context.cpu_target == "native":
+            self.logger.info("CPU target: native (tuned for this CPU; may not run on other CPUs).")
+        elif context.cpu_target == "generic":
+            self.logger.info("CPU target: generic (runs on any x86-64 CPU).")
+        else:
+            self.logger.info(
+                f"CPU target: {context.cpu_target} (runs on any CPU that implements "
+                f"{context.cpu_target})."
+            )
+        memory = context.host_memory
+        if memory is None:
+            self.logger.warn("Memory: unable to read '/proc/meminfo'.")
+        else:
+            limit = (
+                f", cgroup limit {format_gib(memory.cgroup_limit)}"
+                if memory.cgroup_limit is not None
+                else ""
+            )
+            self.logger.info(
+                f"Memory: {format_gib(memory.available)} available of "
+                f"{format_gib(memory.total)}{limit}."
+            )
+        self.logger.info(f"Parallel jobs: {context.build_threads} ({context.jobs_reason}).")
+
     def run_build(self, context: BuildContext) -> None:
-        machine = os.uname().machine
-        if machine != "x86_64":
-            raise BuildError(f"Unsupported architecture '{machine}'. Only x86_64 is supported.")
         os.umask(0o022)
         self.initialize_build_root()
         configure_environment(context)
@@ -517,15 +621,17 @@ class Orchestrator:
             "Validating sudo credentials (needed for APT, fonts, and the final install step)..."
         )
         self.runner.require_sudo()
+        self.start_build_log()
 
         self.logger.banner(f"ImageMagick Build Script {SCRIPT_VERSION}")
         self.logger.info(f"Build root: {context.cwd}")
-        self.logger.info(f"Parallel jobs: {context.build_threads}")
+        self.report_host(context)
         self.logger.info(
             f"Link mode: {link_mode(context)} "
             + ("(--shared)" if context.shared else "(default; --shared builds shared libraries)")
         )
         selected = len(context.selection.enabled_names())
+        self.logger.info(f"Compiler: {context.compiler}")
         self.logger.info(f"Selected packages: {selected} of {len(registry.PACKAGE_NAMES)}")
         self.logger.info("Completed packages are reused; 'already built' does not mean disabled.")
         if context.latest:
@@ -556,7 +662,7 @@ class Orchestrator:
         self.logger.farewell(REPOSITORY_URL)
 
     def run(self) -> int:
-        metadata = metadata_response(self.argv)
+        metadata = metadata_response(self.argv, color_enabled(sys.stdout))
         if metadata is not None:
             sys.stdout.write(metadata)
             return 0
@@ -584,7 +690,7 @@ class Orchestrator:
             self.cleanup()
             return 0
         if not arguments.build:
-            sys.stdout.write(usage_text())
+            sys.stdout.write(usage_text(color_enabled(sys.stdout)))
             return 0
         validate_request(selection)
         self.run_build(self.build_context(arguments, settings, selection))
@@ -630,13 +736,33 @@ def main(argv: list[str]) -> int:
         orchestrator.teardown()
 
 
+def raise_location(error: BaseException) -> list[str]:
+    """Where the error was raised and from which caller, so a shared helper's
+    failure still names the recipe line that invoked it."""
+    frames = []
+    traceback = error.__traceback__
+    while traceback is not None:
+        frames.append(traceback)
+        traceback = traceback.tb_next
+    if not frames:
+        return []
+    origin = f"{Path(frames[-1].tb_frame.f_code.co_filename).name}:{frames[-1].tb_lineno}"
+    if len(frames) == 1:
+        return [f"Raised from: {origin}"]
+    caller = frames[-2]
+    caller_name = Path(caller.tb_frame.f_code.co_filename).name
+    return [f"Raised from: {caller_name}:{caller.tb_lineno} (check at {origin})"]
+
+
 def _report_failure(orchestrator: Orchestrator, error: BuildError) -> None:
     """Report a fatal failure as one record, with the log and bug-report pointer under it."""
     context = orchestrator.context
     in_progress = context.package_in_progress if context is not None else ""
-    detail = [str(error)]
-    if context is not None and context.log_file.is_file():
-        detail.append(f"Build log: {context.log_file}")
+    detail = [str(error), *raise_location(error)]
+    # Only once this run writes it: before that the file is the previous run's.
+    log_file = orchestrator.logger.log_file
+    if log_file is not None and log_file.is_file():
+        detail.append(f"Build log: {log_file}")
     detail.append(f"Report a bug: {ISSUE_TRACKER_URL}")
     print(file=sys.stderr)
     if context is not None and in_progress:

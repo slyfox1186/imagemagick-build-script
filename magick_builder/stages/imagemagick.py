@@ -11,14 +11,18 @@ import hashlib
 import os
 import re
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from .. import registry
 from ..runtime import shellquote
 from ..runtime.context import MAGICK_BINARY, BuildContext, link_mode
 from ..runtime.errors import BuildError
-from ..runtime.paths import safe_remove_tree
-from ..runtime.state import CONFIGURE_FINGERPRINT_SUFFIX, publish_atomically
+from ..runtime.exec import defer_cancellation
+from ..runtime.paths import DirectoryLock, safe_remove_tree
+from ..runtime.state import CONFIGURE_FINGERPRINT_SUFFIX, publish_atomically, read_marker
 from .self_contained import (
     BUNDLED_LIBRARY_DIRECTORY,
     SelfContainedInstall,
@@ -40,6 +44,20 @@ POLICY_FILE = "usr/local/etc/ImageMagick-7/policy.xml"
 # The digest of the default policy this builder last published: a later publish
 # replaces an untouched default but never an administrator's edited policy.
 POLICY_RECORD = f"{MANIFEST_DIRECTORY}/policy.sha256"
+# What this workspace published, file by file: `<sha256>  <path>`, or
+# `link-<sha256 of the target>  <path>` for a symlink, so the first field never
+# holds a space. A finished build is reused only while
+# /usr/local still holds exactly these files, so an ImageMagick another build
+# root or a manual install put there, even of the same release, is rebuilt.
+INSTALL_RECEIPT_NAME = "imagemagick.installed"
+# Every file a publish will replace or remove, saved first and restored if the
+# new install fails its checks. It sits beside the manifest, not in a build
+# root: its presence is what tells every build root and user that an install
+# was never committed or rolled back, and the next install waits for it.
+BACKUP_FILE = f"{MANIFEST_DIRECTORY}/previous-install.tar"
+INSTALL_PREFIX = Path("/usr/local")
+# Where manifest entries (relative paths such as usr/local/bin/magick) live.
+SYSTEM_ROOT = Path("/")
 # What --enable-legacy-support installs beside magick.
 LEGACY_UTILITIES = (
     "animate",
@@ -242,7 +260,7 @@ def report_field(report: list[str], name: str) -> str:
 def read_installed_manifest() -> list[str]:
     """The entries the previous publish recorded, or none when it left no readable record."""
     try:
-        return Path("/", MANIFEST_FILE).read_text(encoding="utf-8").splitlines()
+        return (SYSTEM_ROOT / MANIFEST_FILE).read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeError):
         return []
 
@@ -258,17 +276,86 @@ def stale_entries(previous: list[str], current: list[str]) -> list[str]:
     touched, and the policy is always among the staged entries.
     """
     kept = set(current)
+    return [entry for entry in recorded_entries(previous) if entry not in kept]
+
+
+def recorded_entries(previous: list[str]) -> list[str]:
+    """Manifest entries safe to act on as root: relative paths under usr/local."""
     return [
         entry
         for entry in previous
-        if entry not in kept and entry.startswith("usr/local/") and ".." not in Path(entry).parts
+        if entry.startswith("usr/local/") and ".." not in Path(entry).parts
     ]
+
+
+def mutated_entries(entries: list[str], excluded: list[str], previous: list[str]) -> list[str]:
+    """Every path a publish writes or removes: the staged files it copies and
+    the previous install's leftovers. Paths the copy excludes are never touched."""
+    skipped = {item.removeprefix("--exclude=") for item in excluded}
+    copied = [entry for entry in recorded_entries(entries) if entry not in skipped]
+    return sorted({*copied, *stale_entries(previous, entries)})
+
+
+@dataclass(frozen=True)
+class Backup:
+    """What a publish saved first: the archive (None when nothing it touches
+    existed), the paths that existed, and whether the archive's directory was
+    created for it."""
+
+    archive: Path | None
+    existing: frozenset[str]
+    created_directory: bool
+
+
+def restore_command(archive: Path) -> str:
+    return f"sudo tar -C / --keep-directory-symlink -xf {archive} && sudo rm -f -- {archive}"
+
+
+@contextmanager
+def prefix_lock() -> Iterator[None]:
+    """Hold the lock on /usr/local that every build root and user shares.
+
+    Taken for every read of the installed tree as well as for the install, so
+    no check sees another build's half-published files.
+    """
+    lock = DirectoryLock(INSTALL_PREFIX)
+    timeout = int(os.environ.get("HOST_MUTATION_LOCK_TIMEOUT") or "3600")
+    if not lock.acquire(timeout=timeout):
+        raise BuildError(
+            f"Timed out waiting for another build to finish installing into {INSTALL_PREFIX}."
+        )
+    with lock:
+        yield
+
+
+def install_receipt(entries: list[str]) -> str:
+    """One line per published entry describing what is there now.
+
+    The security policy is left out: administrators edit it, and an edited
+    policy is kept on purpose.
+    """
+    lines: list[str] = []
+    for entry in sorted(entries):
+        if entry == POLICY_FILE:
+            continue
+        path = SYSTEM_ROOT / entry
+        if path.is_symlink():
+            target = os.readlink(path).encode("utf-8", "surrogateescape")
+            lines.append(f"link-{hashlib.sha256(target).hexdigest()}  {entry}")
+        else:
+            lines.append(f"{file_digest(path) or 'missing'}  {entry}")
+    return "".join(f"{line}\n" for line in lines)
+
+
+def receipt_entries(receipt: str) -> list[str]:
+    return [line.split("  ", 1)[1] for line in receipt.splitlines() if "  " in line]
 
 
 def file_digest(path: Path) -> str | None:
     """The sha256 of a file, or None when it is absent or unreadable."""
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        with path.open("rb") as stream:
+            return hashlib.file_digest(stream, "sha256").hexdigest()
     except OSError:
         return None
 
@@ -432,15 +519,13 @@ class ImageMagickStage:
 
     # -- publication -----------------------------------------------------
 
-    def publish(self, staging: Path) -> list[Path]:
-        """One privileged copy of the validated tree, with an inspectable manifest.
+    def prepare_publication(self, staging: Path) -> tuple[list[str], list[str]]:
+        """Write the manifest into the staged tree; returns (entries, tar exclusions).
 
-        Upstream's install recipe never runs as root. `--no-overwrite-dir` keeps
-        the ownership and modes of existing directories such as /usr/local. An
-        edited security policy is kept, like a dpkg conffile, and files the
-        previous publish left in ImageMagick's own trees are removed.
+        An edited security policy is kept, like a dpkg conffile: it is excluded
+        from the copy, and only a policy that is still the default this
+        builder installed is replaced.
         """
-        context = self.context
         manifest_directory = staging / MANIFEST_DIRECTORY
         manifest_directory.mkdir(parents=True, exist_ok=True)
         excluded: list[str] = []
@@ -448,10 +533,10 @@ class ImageMagickStage:
         if staged_policy.is_file():
             digest = hashlib.sha256(staged_policy.read_bytes()).hexdigest()
             publish_atomically(staging / POLICY_RECORD, f"{digest}\n")
-            installed = Path("/", POLICY_FILE)
+            installed = SYSTEM_ROOT / POLICY_FILE
             installed_digest = file_digest(installed)
             if installed_digest != digest and (installed.exists() or installed.is_symlink()):
-                recorded = read_policy_record(Path("/", POLICY_RECORD))
+                recorded = read_policy_record(SYSTEM_ROOT / POLICY_RECORD)
                 if recorded is not None and recorded == installed_digest:
                     self.logger.info(
                         f"Replacing the untouched default /{POLICY_FILE} with this "
@@ -479,9 +564,20 @@ class ImageMagickStage:
             if path.is_symlink() or path.is_file()
         ]
         entries = sorted([*entries, MANIFEST_FILE])
-        stale = stale_entries(read_installed_manifest(), entries)
         publish_atomically(staging / MANIFEST_FILE, "\n".join(entries) + "\n")
+        return entries, excluded
 
+    def publish(
+        self, staging: Path, entries: list[str], excluded: list[str], previous: list[str]
+    ) -> list[Path]:
+        """One privileged copy of the validated tree, with an inspectable manifest.
+
+        Upstream's install recipe never runs as root. `--no-overwrite-dir` keeps
+        the ownership and modes of existing directories such as /usr/local, and
+        files the previous publish left in ImageMagick's own trees are removed.
+        """
+        context = self.context
+        stale = stale_entries(previous, entries)
         archive = context.packages / "imagemagick-install.tar"
         context.register_temporary_path(archive)
         try:
@@ -524,7 +620,185 @@ class ImageMagickStage:
             archive.unlink(missing_ok=True)
             context.unregister_temporary_path(archive)
         self.logger.info(f"Install manifest: /{MANIFEST_FILE}")
-        return [Path("/", entry) for entry in entries]
+        return [SYSTEM_ROOT / entry for entry in entries]
+
+    # -- backup and rollback ---------------------------------------------
+
+    @property
+    def backup_file(self) -> Path:
+        return SYSTEM_ROOT / BACKUP_FILE
+
+    def back_up(self, mutated: list[str]) -> Backup:
+        """Save every file the publish will replace or remove before it starts.
+
+        That includes files no manifest recorded, such as a manual install's
+        magick: a failed install must put them back, not delete them. Root
+        reads them, since a file need not be readable by the build user.
+        """
+        context = self.context
+        existing = [entry for entry in mutated if os.path.lexists(SYSTEM_ROOT / entry)]
+        if not existing:
+            return Backup(None, frozenset(), False)
+        backup = Backup(
+            self.backup_file,
+            frozenset(existing),
+            not os.path.lexists(SYSTEM_ROOT / MANIFEST_DIRECTORY),
+        )
+        listing = context.packages / f"{Path(BACKUP_FILE).name}.list"
+        listing.write_text("".join(f"{entry}\0" for entry in existing), encoding="utf-8")
+        try:
+            if backup.created_directory:
+                context.sudo("mkdir", "-p", "--", f"/{MANIFEST_DIRECTORY}")
+            context.sudo(
+                "tar",
+                "-C",
+                "/",
+                "--no-recursion",
+                "--null",
+                "-T",
+                str(listing),
+                "-cf",
+                str(self.backup_file),
+                display=f"sudo tar -C / -cf {self.backup_file} <{len(existing)} installed files>",
+            )
+        except BaseException:
+            # Nothing has been replaced yet, so a partial archive must not stay
+            # behind to read as an unrestored install.
+            self.discard_backup(backup)
+            raise
+        finally:
+            listing.unlink(missing_ok=True)
+        return backup
+
+    def discard_backup(self, backup: Backup) -> None:
+        if backup.archive is None:
+            return
+        context = self.context
+        context.sudo("rm", "-f", "--", f"/{BACKUP_FILE}")
+        if backup.created_directory:
+            context.sudo("rmdir", "--ignore-fail-on-non-empty", "--", f"/{MANIFEST_DIRECTORY}")
+
+    def roll_back(self, mutated: list[str], backup: Backup) -> None:
+        """Put back what a failed publish or installed check changed.
+
+        Files that did not exist before are removed, then the saved ones are
+        restored and the linker cache rebuilt. Every step runs even when one
+        fails, and cancellation waits until they have: stopping halfway would
+        leave a mix of both installs. Paths the copy excluded, such as an
+        edited policy, are neither saved nor restored, so a later edit stays.
+        """
+        context = self.context
+        added = [entry for entry in mutated if entry not in backup.existing]
+        archive = backup.archive
+        steps: list[tuple[str, list[str], str | None]] = []
+        if added:
+            steps.append(
+                (
+                    "removing the files this install added",
+                    ["rm", "-f", "--", *(f"/{entry}" for entry in added)],
+                    f"sudo rm -f -- <{len(added)} files this install added>",
+                )
+            )
+        if archive is not None:
+            steps.append(
+                (
+                    "restoring the saved files",
+                    ["tar", "-C", "/", "--keep-directory-symlink", "-xf", str(archive)],
+                    None,
+                )
+            )
+        steps.append(("rebuilding the linker cache", ["ldconfig"], None))
+        self.logger.warn("Restoring the previous ImageMagick installation under /usr/local.")
+        failures: list[str] = []
+        with defer_cancellation() as deferred:
+            for description, arguments, display in steps:
+                try:
+                    context.sudo(*arguments, display=display)
+                except Exception as error:
+                    failures.append(f"{description}: {error}")
+        if deferred:
+            self.logger.warn(
+                "Cancellation was held off until the previous installation was restored."
+            )
+        if failures:
+            manual = f" Restore it by hand with: {restore_command(archive)}" if archive else ""
+            raise BuildError(
+                f"Restoring the previous installation failed ({'; '.join(failures)}).{manual}"
+            )
+        self.discard_backup(backup)
+        self.logger.info(
+            "The previous installation was restored."
+            if backup.existing
+            else "The files this install added were removed."
+        )
+
+    def install(self, staging: Path, version: str) -> list[str]:
+        """Publish, verify, and put the previous install back when this one fails.
+
+        The whole sequence holds the lock on /usr/local itself, which every build
+        root and user of this project shares, so two builds never interleave
+        their manifests, copies and stale-file removals. sudo is revalidated
+        first: a long compile can outlive the cached credential.
+        """
+        context = self.context
+        with prefix_lock():
+            if os.path.lexists(self.backup_file):
+                # Left by an install whose restore failed or that was killed,
+                # from any build root: it may hold the only copy of the install
+                # before that one.
+                raise BuildError(
+                    f"An earlier install's backup is still at '{self.backup_file}'. Restore it "
+                    f"with '{restore_command(self.backup_file)}', or delete it with "
+                    f"'sudo rm -f -- {self.backup_file}', then run the build again."
+                )
+            context.runner.require_sudo()
+            entries, excluded = self.prepare_publication(staging)
+            previous = read_installed_manifest()
+            mutated = mutated_entries(entries, excluded, previous)
+            backup = self.back_up(mutated)
+            try:
+                published = self.publish(staging, entries, excluded, previous)
+                context.sudo("ldconfig")
+                audit_published_install(context, published)
+                self.validate_installation(version)
+            except BaseException:
+                self.logger.warn("The new installation did not complete.")
+                self.roll_back(mutated, backup)
+                raise
+            self.discard_backup(backup)
+            publish_atomically(self.receipt_file, install_receipt(entries))
+        return entries
+
+    # -- reuse -----------------------------------------------------------
+
+    @property
+    def receipt_file(self) -> Path:
+        return self.context.packages / INSTALL_RECEIPT_NAME
+
+    def reuse_problem(self, version: str) -> str | None:
+        """Why the ImageMagick under /usr/local is not this workspace's build, or None."""
+        with prefix_lock():
+            return self._reuse_problem(version)
+
+    def _reuse_problem(self, version: str) -> str | None:
+        try:
+            receipt = self.receipt_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return (
+                "This workspace has no record of the files it installed "
+                f"({self.receipt_file.name}), so the ImageMagick under /usr/local cannot be "
+                "confirmed as its own."
+            )
+        if install_receipt(receipt_entries(receipt)) != receipt:
+            return (
+                "The ImageMagick files under /usr/local changed since this workspace installed "
+                "them (another build or a manual install replaced them)."
+            )
+        try:
+            self.validate_installation(version)
+        except BuildError as error:
+            return str(error)
+        return None
 
     # -- the stage -------------------------------------------------------
 
@@ -545,16 +819,21 @@ class ImageMagickStage:
         resolved = context.resolve("imagemagick")
         if resolved is None:
             return
-        if not context.build("imagemagick", resolved.version):
+        marker = context.marker_path("imagemagick")
+        recorded = read_marker(marker)
+        if (
+            recorded is not None
+            and recorded[0] == resolved.version
+            and context.artifacts_present("imagemagick")
+        ):
             # /usr/local is shared: another build root or a manual install can
-            # have replaced what this marker describes.
-            try:
-                self.validate_installation(resolved.version)
-            except BuildError as error:
-                context.marker_path("imagemagick").unlink(missing_ok=True)
-                raise BuildError(
-                    f"{error} Its completion marker was removed; the next run rebuilds it."
-                ) from error
+            # have replaced what this marker describes. Rebuild it now rather
+            # than report someone else's install as this build.
+            problem = self.reuse_problem(resolved.version)
+            if problem is not None:
+                self.logger.warn(f"{problem} Rebuilding ImageMagick {resolved.version}.")
+                context.invalidate("imagemagick")
+        if not context.build("imagemagick", resolved.version):
             return
         version = resolved.version
         if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-[0-9]+", version):
@@ -586,10 +865,7 @@ class ImageMagickStage:
         if not context.shared:
             self_contained.assert_static(bundled)
         self.validate_staged_install(staging, version)
-        published = self.publish(staging)
-        context.sudo("ldconfig")
-        audit_published_install(context, published)
-        self.validate_installation(version)
+        self.install(staging, version)
         context.build_done("imagemagick", version, resolved.commit)
         publish_atomically(self.fingerprint_file, f"{fingerprint}\n")
 
@@ -604,8 +880,8 @@ class ImageMagickStage:
         ImageMagick's version marker still matched, so a fingerprint mismatch,
         or a missing record, rebuilds it.
         """
-        marker = self.context.marker_path("imagemagick")
-        if not marker.exists():
+        context = self.context
+        if not context.marker_path("imagemagick").exists():
             return
         try:
             recorded = self.fingerprint_file.read_text(encoding="utf-8").split("\n", 1)[0]
@@ -616,7 +892,7 @@ class ImageMagickStage:
                 "ImageMagick's configure options or recipe changed since the last build; "
                 "rebuilding it."
             )
-            marker.unlink(missing_ok=True)
+            context.invalidate("imagemagick")
 
 
 def report_success(context: BuildContext) -> None:
@@ -625,6 +901,12 @@ def report_success(context: BuildContext) -> None:
     if not context.package_enabled("imagemagick"):
         logger.banner("Dependency build completed successfully")
         return
+    with prefix_lock():
+        report_installed(context)
+
+
+def report_installed(context: BuildContext) -> None:
+    logger = context.logger
 
     def ask(*arguments: str) -> str:
         completed = context.runner.capture([str(MAGICK_BINARY), *arguments], timeout=60)

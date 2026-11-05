@@ -6,12 +6,48 @@ from pathlib import Path
 
 from ..registry import GNU_FALLBACK_MIRROR, GNU_PRIMARY_MIRROR
 from ..runtime.context import BuildContext
+from ..runtime.errors import BuildError
 from .helpers import configure_make_install
 from .system_setup import release_info, workspace_pkg_config_dirs
 
 
 def libtool_version(distribution: str, version: str) -> str:
     return release_info(distribution, version).libtool
+
+
+# pkg-config's bundled GLib 2.36 hands the integer operand of its pointer-sized
+# atomics to __sync builtins on the gpointer itself. GCC accepts that; Clang
+# checks the operand against void * and, since Clang 15, rejects the implicit
+# integer-to-pointer conversion as an error. Current GLib operates on the
+# pointer-sized integer instead (its gatomic.h casts to guintptr *), which is
+# the same operation for both compilers: each macro already asserts the two
+# sizes are equal. The (gssize)/(gsize) prefixes match only the pointer macros;
+# the int macros' are (gint)/(guint).
+BUNDLED_GLIB_POINTER_ATOMICS = {
+    "(gssize) __sync_fetch_and_add ((atomic), (val))": (
+        "(gssize) __sync_fetch_and_add ((volatile gssize *) (atomic), (val))"
+    ),
+    **{
+        f"(gsize) __sync_fetch_and_{operation} ((atomic), (val))": (
+            f"(gsize) __sync_fetch_and_{operation} ((volatile gsize *) (atomic), (val))"
+        )
+        for operation in ("and", "or", "xor")
+    },
+}
+
+
+def fix_bundled_glib_atomics(source: Path) -> None:
+    """Make the bundled GLib's pointer atomics compile with Clang as well as GCC."""
+    header = source / "glib/glib/gatomic.h"
+    try:
+        text = header.read_text(encoding="utf-8")
+    except OSError as error:
+        raise BuildError(f"pkg-config's bundled GLib header '{header}' is unreadable.") from error
+    fixed = text
+    for original, replacement in BUNDLED_GLIB_POINTER_ATOMICS.items():
+        fixed = fixed.replace(original, replacement)
+    if fixed != text:
+        header.write_text(fixed, encoding="utf-8")
 
 
 def gnu_download(context: BuildContext, path: str) -> Path:
@@ -45,6 +81,7 @@ def install_core_tools(context: BuildContext) -> None:
             f"https://pkgconfig.freedesktop.org/releases/pkg-config-{resolved.version}.tar.gz"
         )
         context.execute(["autoconf"], cwd=source)
+        fix_bundled_glib_atomics(source)
         ldflags = context.env["LDFLAGS"]
         iconv_options: list[str] = []
         # A GNU libiconv in /usr/local must supply headers and library together,

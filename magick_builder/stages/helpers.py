@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..runtime.buildsys import CMAKE_NO_PACKAGE_REGISTRY_OPTIONS, MESON_NO_DOWNLOAD_OPTIONS
 from ..runtime.context import BuildContext
 
 
@@ -74,6 +75,7 @@ def meson_install(context: BuildContext, source: Path, *options: str) -> None:
             "--libdir=lib",
             "--buildtype=release",
             "-Db_ndebug=if-release",
+            *MESON_NO_DOWNLOAD_OPTIONS,
             *meson_link_options(context),
             *options,
         ],
@@ -86,12 +88,14 @@ def cmake_release_options(context: BuildContext) -> list[str]:
     """PIC is explicit: CMake applies it to shared targets only by default.
 
     The link mode is not here: libjpeg-turbo and OpenJPEG spell it their own
-    way, the rest take `cmake_link_options`.
+    way, the rest take `cmake_link_options`. The package registries are off so
+    `find_package()` resolves only what the workspace and the system provide.
     """
     return [
         f"-DCMAKE_INSTALL_PREFIX={context.workspace}",
         "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+        *CMAKE_NO_PACKAGE_REGISTRY_OPTIONS,
     ]
 
 

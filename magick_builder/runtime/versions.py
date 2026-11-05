@@ -50,15 +50,14 @@ class Resolved:
     commit: str = ""
 
 
-def select_latest_stable_tag(
-    listing: str, accept: str, exclude: str = "", prefix: str = ""
-) -> Resolved | None:
-    """Pick the highest stable tag from `git ls-remote --tags` output.
+def _stable_tag_names(
+    listing: str, accept: str, exclude: str, prefix: str
+) -> tuple[dict[str, str], dict[str, str]]:
+    """({version: tag}, {reference: sha}) for the stable tags in an ls-remote listing.
 
     Every upstream needs its own grammar: libjpeg-turbo alone carries x.y.9z
     development tags plus inherited jpeg-9e/jpeg-10 tags that a generic version
-    sort would happily select. The peeled (`^{}`) line carries the commit an
-    annotated tag actually points to, so it wins over the tag object itself.
+    sort would happily select.
     """
     accept_pattern = re.compile(accept)
     exclude_pattern = re.compile(exclude) if exclude else None
@@ -78,14 +77,32 @@ def select_latest_stable_tag(
             continue
         version = tag[len(prefix) :] if prefix and tag.startswith(prefix) else tag
         by_version[version] = tag
-    selected = newest(by_version)
-    if selected is None:
-        return None
-    tag = by_version[selected]
+    return by_version, references
+
+
+def _pinned(tag: str, version: str, references: dict[str, str]) -> Resolved | None:
+    """The tag with its commit; the peeled (`^{}`) line names the commit an
+    annotated tag points to, so it wins over the tag object itself."""
     commit = references.get(f"refs/tags/{tag}^{{}}") or references.get(f"refs/tags/{tag}", "")
-    if not _COMMIT.match(commit):
-        return None
-    return Resolved(tag, selected, commit)
+    return Resolved(tag, version, commit) if _COMMIT.match(commit) else None
+
+
+def select_latest_stable_tag(
+    listing: str, accept: str, exclude: str = "", prefix: str = ""
+) -> Resolved | None:
+    """Pick the highest stable tag from `git ls-remote --tags` output."""
+    by_version, references = _stable_tag_names(listing, accept, exclude, prefix)
+    selected = newest(by_version)
+    return None if selected is None else _pinned(by_version[selected], selected, references)
+
+
+def select_tag_for_version(
+    listing: str, version: str, accept: str, exclude: str = "", prefix: str = ""
+) -> Resolved | None:
+    """The stable tag whose version is exactly `version`, pinned to its commit."""
+    by_version, references = _stable_tag_names(listing, accept, exclude, prefix)
+    tag = by_version.get(version)
+    return None if tag is None else _pinned(tag, version, references)
 
 
 def select_listed_release(listing: str) -> str | None:
@@ -125,6 +142,15 @@ class VersionResolver:
         if resolved is None:
             self.logger.warn(f"No stable release tag matched in '{repository_url}'.")
         return resolved
+
+    def tag_for_version(
+        self, repository_url: str, version: str, accept: str, exclude: str = "", prefix: str = ""
+    ) -> Resolved | None:
+        """The upstream tag of one exact release, for repairing a recorded build."""
+        listing = self._git("ls-remote", "--tags", repository_url)
+        if listing is None:
+            return None
+        return select_tag_for_version(listing, version, accept, exclude, prefix)
 
     def head(self, repository_url: str) -> Resolved | None:
         """Pin HEAD itself, for repositories whose tags do not track content."""
