@@ -261,12 +261,17 @@ is not a fully static executable: Debian and Ubuntu ship no static archives
 for those delegates. `libMagickCore-7.*.a`, `libMagickWand-7.*.a` and
 `MagickCore.pc` are installed for programs that link ImageMagick.
 
+Both modes install PerlMagick (`Image::Magick`) for the system `perl`. With
+static libraries, upstream's `--with-perl` builds a separate Perl interpreter
+instead of a module, so the static build configures `--without-perl` and links
+upstream's module itself: its `Q16HDRI.so` carries libMagickWand, libMagickCore
+and the workspace libraries, keeps their symbols private, and loads only
+distribution libraries. jemalloc stays out of it, because a library `perl`
+loads at run time cannot replace `malloc` for the whole process.
+
 `--shared` builds what releases before 3.1 built: shared `libMagickCore` and
 `libMagickWand`, coder modules loaded on demand, and the workspace libraries
-bundled into `/usr/local/lib/imagemagick-build-script`. It is also the only
-mode that installs PerlMagick (`Image::Magick`): with static libraries,
-upstream builds a separate statically linked Perl interpreter instead of the
-module, so the static build passes `--without-perl`. Switching modes rebuilds
+bundled into `/usr/local/lib/imagemagick-build-script`. Switching modes rebuilds
 every package once, because every workspace library is built differently, and
 the install replaces the other mode's files through the manifest.
 
@@ -465,7 +470,9 @@ All state lives under `./build/` (override with `BUILD_ROOT=/path`):
   a disabled delegate's old coder module cannot keep loading and a switch
   between the static and shared modes leaves no stale libraries, modules or
   bundled copies behind. Files nobody recorded in the manifest are never
-  removed, and an edited `policy.xml` is never touched.
+  removed, an edited `policy.xml` is never touched, and Perl's
+  `perllocal.pod` (its record of every locally installed module) is never
+  replaced or removed.
 - The published install never depends on the build root, so `--cleanup`
   cannot break it. The static default links the workspace libraries in; a
   `--shared` build copies every workspace shared library it loads into
@@ -522,7 +529,9 @@ The builder only reports success after the installed `/usr/local/bin/magick`:
    and a working `MagickCore-config`,
 5. loads every library of every installed program, library and module
    from outside the build root,
-6. completes a real conversion round-trip (`logo:` -> PNG -> WebP).
+6. completes a real conversion round-trip (`logo:` -> PNG -> WebP),
+7. has a PerlMagick module the system `perl` loads with every symbol bound
+   (`PERL_DL_NONLAZY=1`), reading an image and reporting this release.
 
 Selections that disable PNG or WebP test only the enabled formats; a selection
 with both disabled tests ImageMagick's native MIFF format.
@@ -532,6 +541,7 @@ example (Debian 12, static default):
 
 ```text
 [INFO] Functional smoke test passed (logo: -> PNG -> WebP).
+[INFO] PerlMagick smoke test passed (ImageMagick 7.1.2-34 Q16-HDRI x86_64 ... https://imagemagick.org).
 [DONE] imagemagick 7.1.2-34 built in 53s
 
 ┌────────────────────────────────────────────┐

@@ -31,7 +31,8 @@ def install_extra_libraries(context: BuildContext) -> None:
         # malloc_stats_print probe ImageMagick runs survives --disable-stats.
         # A shared libjemalloc is dlopened through PerlMagick's module, which
         # its default initial-exec TLS model cannot survive ("cannot allocate
-        # memory in static TLS block"); the static default links it in.
+        # memory in static TLS block"). The static default links it into the
+        # executables only; its PerlMagick module leaves it out (perlmagick.py).
         context.execute(["sh", "autogen.sh"], cwd=source)
         configure_make_install(
             context,

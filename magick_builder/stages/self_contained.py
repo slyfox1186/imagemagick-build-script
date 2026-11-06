@@ -10,8 +10,8 @@ loads is copied into BUNDLED_LIBRARY_DIRECTORY, a private directory that only
 these objects' run paths name, so the system's own copies are never shadowed;
 every build-root run path entry is removed; and the libtool, pkg-config,
 *-config and Perl metadata stop naming build-root paths. The static default
-links the workspace archives in, so it bundles nothing, and `assert_static`
-refuses a tree that still carries shared objects.
+links the workspace archives in, PerlMagick's module included, so it bundles
+nothing, and `assert_static` refuses a tree that still carries shared objects.
 """
 
 from __future__ import annotations
@@ -134,7 +134,8 @@ class SelfContainedInstall:
         return bundled
 
     def assert_static(self, bundled: dict[str, Path]) -> None:
-        """A static build bundles nothing, ships no libMagick objects or modules."""
+        """A static build bundles nothing, ships no libMagick objects or modules,
+        and no object loads libMagick or jemalloc (PerlMagick must not)."""
         problems = [f"workspace library {soname} was bundled" for soname in sorted(bundled)]
         library = self.staging / "usr/local/lib"
         problems += [
@@ -150,7 +151,7 @@ class SelfContainedInstall:
             needed = [
                 soname
                 for soname in self._patchelf("--print-needed", str(path)).split()
-                if soname.startswith("libMagick")
+                if soname.startswith(("libMagick", "libjemalloc"))
             ]
             if needed:
                 problems.append(f"{path.relative_to(self.staging)} needs {' '.join(needed)}")

@@ -23,6 +23,7 @@ from ..runtime.errors import BuildError
 from ..runtime.exec import defer_cancellation
 from ..runtime.paths import DirectoryLock, safe_remove_tree
 from ..runtime.state import CONFIGURE_FINGERPRINT_SUFFIX, publish_atomically, read_marker
+from .perlmagick import PERL, build_static_perlmagick
 from .self_contained import (
     BUNDLED_LIBRARY_DIRECTORY,
     SelfContainedInstall,
@@ -36,8 +37,9 @@ from .self_contained import (
 # Revision 3: the install bundles its workspace libraries and no longer
 # depends on the build root (see self_contained.py). Revision 4: the link mode
 # decides the install's layout, and the manifest prunes everything the
-# previous install left under /usr/local.
-RECIPE_REVISION = "4"
+# previous install left under /usr/local. Revision 5: the static build installs
+# PerlMagick (see perlmagick.py).
+RECIPE_REVISION = "5"
 MANIFEST_DIRECTORY = "usr/local/share/imagemagick-build-script"
 MANIFEST_FILE = f"{MANIFEST_DIRECTORY}/manifest.txt"
 POLICY_FILE = "usr/local/etc/ImageMagick-7/policy.xml"
@@ -73,6 +75,20 @@ LEGACY_UTILITIES = (
     "montage",
     "stream",
 )
+# ExtUtils::Install's record of every module installed into the site tree. A
+# staged copy names only ImageMagick, so it is never published, and a copy an
+# older install's manifest recorded is the system's own record, never pruned.
+PERL_LOCAL_RECORD = "perllocal.pod"
+# Loads Image::Magick, reads a built-in image and checks the release it reports.
+PERLMAGICK_SMOKE_TEST = """
+my ($release) = @ARGV;
+my $image = Image::Magick->new;
+my $error = $image->Read("logo:");
+die "$error\\n" if $error;
+my $version = $image->Get("version");
+die "Image::Magick reports '$version'\\n" unless index("$version ", "ImageMagick $release ") >= 0;
+print "$version\\n";
+"""
 # One row of `magick -list format`: name, module, then the r/w/+ mode column.
 _FORMAT_ROW = re.compile(r"^\s*\S+\s+\S+\s+([r-])([w-])[+-]\s")
 
@@ -173,9 +189,9 @@ def link_mode_arguments(context: BuildContext) -> list[str]:
 
     Static: the coders are compiled into libMagickCore (`--with-modules` under
     `--disable-shared` is only a warned no-op), and `--with-perl` would build a
-    separate statically linked Perl interpreter and install no Image::Magick
-    module, so PerlMagick exists only in the shared build. libfpx is C++ and
-    ImageMagick links with the C driver, so the runtime is named here.
+    separate statically linked Perl interpreter instead of an Image::Magick
+    module, so perlmagick.py builds the module. libfpx is C++ and ImageMagick
+    links with the C driver, so the runtime is named here.
     """
     if context.shared:
         return [
@@ -276,7 +292,11 @@ def stale_entries(previous: list[str], current: list[str]) -> list[str]:
     touched, and the policy is always among the staged entries.
     """
     kept = set(current)
-    return [entry for entry in recorded_entries(previous) if entry not in kept]
+    return [
+        entry
+        for entry in recorded_entries(previous)
+        if entry not in kept and Path(entry).name != PERL_LOCAL_RECORD
+    ]
 
 
 def recorded_entries(previous: list[str]) -> list[str]:
@@ -516,6 +536,25 @@ class ImageMagickStage:
             safe_remove_tree(smoke, context.cwd)
             context.unregister_temporary_path(smoke)
         self.logger.info(f"Functional smoke test passed ({' -> '.join(steps)}).")
+        self.verify_perlmagick(version)
+
+    def verify_perlmagick(self, version: str) -> None:
+        """The system perl loads the published Image::Magick and runs this release.
+
+        PERL_DL_NONLAZY binds every symbol at load time, so a missing library
+        symbol fails here instead of at the first call that needs it.
+        """
+        completed = self.context.runner.capture(
+            [PERL, "-MImage::Magick", "-e", PERLMAGICK_SMOKE_TEST, version],
+            env_overrides={"PERL_DL_NONLAZY": "1"},
+            timeout=120,
+        )
+        if completed.returncode != 0:
+            detail = next(
+                (line for line in completed.stderr.splitlines() if line.strip()), "no output"
+            )
+            raise BuildError(f"PerlMagick smoke test failed: {detail}")
+        self.logger.info(f"PerlMagick smoke test passed ({completed.stdout.strip()}).")
 
     # -- publication -----------------------------------------------------
 
@@ -860,6 +899,10 @@ class ImageMagickStage:
         if staging.exists() or staging.is_symlink():
             safe_remove_tree(staging, context.packages)
         context.execute(["make", f"DESTDIR={staging}", "install"], cwd=build_directory)
+        if not context.shared:
+            build_static_perlmagick(context, build_directory, staging, pkg_config_command(context))
+        for record in (staging / "usr").rglob(PERL_LOCAL_RECORD):
+            record.unlink()
         self_contained = SelfContainedInstall(context, staging)
         bundled = self_contained.apply()
         if not context.shared:
